@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# B008: FastAPI Depends() in defaults is idiomatic.
+# E501: long lines are almost all localized user-facing strings.
+ignore = ["B008", "E501"]

@@ -1,0 +1,214 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import {
+  api,
+  formatBudget,
+  LEAD_STATUSES,
+  LeadDetail,
+  scoreColor,
+  statusColor,
+  UserOut,
+} from "@/lib/api";
+
+/** Renders **bold** + newlines without HTML injection. */
+function Markdownish({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i) => (
+        <p key={i} className="min-h-[1em]">
+          {line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+            part.startsWith("**") && part.endsWith("**") ? (
+              <strong key={j}>{part.slice(2, -2)}</strong>
+            ) : (
+              <span key={j}>{part}</span>
+            )
+          )}
+        </p>
+      ))}
+    </>
+  );
+}
+
+export default function LeadDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [lead, setLead] = useState<LeadDetail | null>(null);
+  const [users, setUsers] = useState<UserOut[]>([]);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setLead(await api<LeadDetail>(`/api/leads/${id}`, {}, true));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load lead");
+    }
+  }, [id]);
+
+  useEffect(() => {
+    load();
+    api<UserOut[]>("/api/users", {}, true).then(setUsers).catch(() => {});
+  }, [load]);
+
+  async function update(patch: Record<string, unknown>) {
+    try {
+      setLead(await api<LeadDetail>(`/api/leads/${id}`, { method: "PATCH", body: JSON.stringify(patch) }, true));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed");
+    }
+  }
+
+  async function addNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!note.trim()) return;
+    await api(`/api/leads/${id}/notes`, { method: "POST", body: JSON.stringify({ text: note }) }, true);
+    setNote("");
+    load();
+  }
+
+  if (error) return <div className="rounded-lg bg-rose-50 p-4 text-rose-700">{error}</div>;
+  if (!lead) return <div className="text-slate-400">Loading…</div>;
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <Link href="/admin" className="text-sm text-indigo-600 hover:underline">
+        ← Back to leads
+      </Link>
+
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">{lead.project_name || `Lead #${lead.id}`}</h1>
+          <div className="mt-1 flex items-center gap-3 text-sm text-slate-500">
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColor(lead.status)}`}>
+              {lead.status}
+            </span>
+            <span>
+              Score: <b className={scoreColor(lead.score)}>{lead.score}/100</b>
+            </span>
+            <span>Created {new Date(lead.created_at).toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={lead.status}
+            onChange={(e) => update({ status: e.target.value })}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            {LEAD_STATUSES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+          <select
+            value={lead.assigned_to?.id ?? ""}
+            onChange={(e) => e.target.value && update({ assigned_to_id: Number(e.target.value) })}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-5">
+        <div className="space-y-6 lg:col-span-3">
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="mb-3 font-semibold">🧾 AI summary</h2>
+            <div className="text-sm leading-relaxed text-slate-700">
+              <Markdownish text={lead.summary || "No summary generated."} />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="mb-3 font-semibold">💬 Chat transcript</h2>
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {lead.messages.length === 0 && <p className="text-sm text-slate-400">No transcript.</p>}
+              {lead.messages.map((m) => (
+                <div key={m.id} className={`flex ${m.sender === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[80%] whitespace-pre-wrap rounded-xl px-3 py-1.5 text-sm ${
+                      m.sender === "user" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {lead.attachments.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h2 className="mb-3 font-semibold">📎 Attachments</h2>
+              <ul className="space-y-1 text-sm">
+                {lead.attachments.map((a) => (
+                  <li key={a.id} className="flex justify-between text-slate-700">
+                    <span>{a.filename}</span>
+                    <span className="text-slate-400">{(a.size / 1024).toFixed(1)} KB</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+
+        <div className="space-y-6 lg:col-span-2">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm">
+            <h2 className="mb-3 font-semibold">👤 Client</h2>
+            <dl className="space-y-2">
+              <Row label="Name" value={lead.client_name || "Anonymous"} />
+              <Row label="Email" value={lead.client_email || "—"} />
+              <Row label="Phone" value={lead.client_phone || "—"} />
+              <Row label="Service" value={lead.service || "—"} />
+              <Row label="Budget" value={formatBudget(lead.budget)} />
+              <Row label="Timeline" value={lead.timeline || "—"} />
+              <Row label="Language" value={lead.language.toUpperCase()} />
+            </dl>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="mb-3 font-semibold">🕓 Activity</h2>
+            <form onSubmit={addNote} className="mb-3 flex gap-2">
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Add an internal note…"
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-indigo-400"
+              />
+              <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700">
+                Add
+              </button>
+            </form>
+            <ul className="max-h-72 space-y-3 overflow-y-auto text-sm">
+              {lead.activities
+                .slice()
+                .reverse()
+                .map((a) => (
+                  <li key={a.id} className="border-l-2 border-indigo-200 pl-3">
+                    <div className="text-slate-700">{a.detail}</div>
+                    <div className="text-xs text-slate-400">
+                      {a.actor} · {a.action} · {new Date(a.created_at).toLocaleString()}
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-slate-400">{label}</dt>
+      <dd className="text-right font-medium text-slate-700">{value}</dd>
+    </div>
+  );
+}

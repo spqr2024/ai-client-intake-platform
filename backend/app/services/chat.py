@@ -1,0 +1,285 @@
+"""Chat orchestration: glues the workflow engine, KB retrieval, LLM layer,
+summarizer, scoring and notifications into the conversation lifecycle."""
+
+import logging
+from dataclasses import dataclass, field
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import ActivityLog, Conversation, Lead, Message, Workflow, utcnow
+from app.services import email as email_service
+from app.services import kb as kb_service
+from app.services import llm, runtime_settings
+from app.services import summary as summary_service
+from app.services import telegram as telegram_service
+from app.services import workflow as wf
+from app.services.scoring import score_lead
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChatReply:
+    bot_message: str
+    quick_replies: list[str] = field(default_factory=list)
+    done: bool = False
+    lead_id: int | None = None
+    summary: str | None = None
+
+
+HUMAN_KEYWORDS = (
+    "talk to a person", "talk to a human", "speak to a human", "real person",
+    "human please", "operator", "оператор", "жива людина", "людина", "менеджер",
+)
+
+TEXTS = {
+    "thanks": {
+        "en": "Thank you! I have everything I need. Here's a summary of your request:\n\n{summary}\n\nOur team will get back to you shortly. 🙌",
+        "uk": "Дякую! У мене є вся потрібна інформація. Ось підсумок вашого запиту:\n\n{summary}\n\nНаша команда незабаром з вами зв'яжеться. 🙌",
+    },
+    "human": {
+        "en": "Of course! I've notified our team — a real person will contact you as soon as possible. 👋",
+        "uk": "Звісно! Я повідомив нашу команду — жива людина зв'яжеться з вами якнайшвидше. 👋",
+    },
+    "kb_prefix": {
+        "en": "Here's what I found that might help:\n\n**{title}**\n{content}\n\nNow, back to my question: {question}",
+        "uk": "Ось що я знайшов — можливо, це допоможе:\n\n**{title}**\n{content}\n\nПовернімося до мого запитання: {question}",
+    },
+    "error": {
+        "en": "Sorry, I'm having trouble right now. Please try again in a moment.",
+        "uk": "Вибачте, у мене виникли технічні труднощі. Спробуйте, будь ласка, ще раз за хвилину.",
+    },
+}
+
+
+def _t(key: str, lang: str, **kwargs) -> str:
+    template = TEXTS[key].get(lang) or TEXTS[key]["en"]
+    return template.format(**kwargs) if kwargs else template
+
+
+def get_default_workflow(db: Session) -> Workflow:
+    workflow = db.scalars(select(Workflow).where(Workflow.is_default == 1)).first()
+    if workflow is None:
+        workflow = db.scalars(select(Workflow)).first()
+    if workflow is None:
+        workflow = Workflow(name="Default intake", is_default=1, definition=wf.DEFAULT_WORKFLOW)
+        db.add(workflow)
+        db.commit()
+        db.refresh(workflow)
+    return workflow
+
+
+def start_conversation(
+    db: Session,
+    client_name: str = "",
+    client_email: str = "",
+    language: str = "",
+    workflow_id: int | None = None,
+) -> tuple[Conversation, ChatReply]:
+    workflow = None
+    if workflow_id is not None:
+        workflow = db.get(Workflow, workflow_id)
+    if workflow is None:
+        workflow = get_default_workflow(db)
+
+    lang = language if language in ("en", "uk") else wf.detect_language(client_name)
+    prefilled: dict = {}
+    if client_name:
+        prefilled["client_name"] = client_name
+    if client_email:
+        prefilled["client_email"] = client_email
+
+    step = wf.start(workflow.definition, prefilled, lang)
+    conversation = Conversation(
+        workflow_id=workflow.id,
+        language=lang,
+        client_name=client_name,
+        client_email=client_email,
+        state=step.state,
+    )
+    db.add(conversation)
+    db.flush()
+
+    greeting = step.reply or _t("thanks", lang, summary="")
+    db.add(Message(conversation_id=conversation.id, sender="bot", text=greeting))
+    db.commit()
+    return conversation, ChatReply(bot_message=greeting, quick_replies=step.quick_replies)
+
+
+async def process_message(db: Session, conversation: Conversation, text: str) -> ChatReply:
+    text = text.strip()
+    db.add(Message(conversation_id=conversation.id, sender="user", text=text))
+
+    # Pin the conversation language on the first meaningful user message.
+    if conversation.language == "en" and wf.detect_language(text) == "uk":
+        conversation.language = "uk"
+    lang = conversation.language
+
+    workflow = db.get(Workflow, conversation.workflow_id) or get_default_workflow(db)
+    definition = workflow.definition
+
+    # 1. Explicit human handoff.
+    if any(k in text.lower() for k in HUMAN_KEYWORDS):
+        reply_text = _t("human", lang)
+        db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+        lead = await _finalize(db, conversation, definition, human_requested=True)
+        return ChatReply(bot_message=reply_text, done=True, lead_id=lead.id if lead else None)
+
+    # 2. Off-script question → try the knowledge base, then re-ask.
+    state = dict(conversation.state or {})
+    current_node = state.get("current_node", "")
+    if kb_service.looks_like_question(text) and current_node:
+        hits = kb_service.search(db, text)
+        if hits:
+            article, _ = hits[0]
+            question, options = _current_prompt(definition, current_node, lang)
+            reply_text = _t("kb_prefix", lang, title=article.title,
+                            content=article.content[:600], question=question)
+            db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+            db.commit()
+            return ChatReply(bot_message=reply_text, quick_replies=options)
+
+    # 3. Normal workflow advance.
+    step = wf.advance(definition, state, text, lang)
+    conversation.state = step.state
+
+    if step.done:
+        lead = await _finalize(db, conversation, definition)
+        summary_text = lead.summary if lead else ""
+        reply_text = _t("thanks", lang, summary=summary_text)
+        db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+        db.commit()
+        return ChatReply(bot_message=reply_text, done=True,
+                         lead_id=lead.id if lead else None, summary=summary_text)
+
+    reply_text = await _maybe_rephrase(db, conversation, step.reply)
+    db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+    db.commit()
+    return ChatReply(bot_message=reply_text, quick_replies=step.quick_replies)
+
+
+def _current_prompt(definition: dict, node_id: str, lang: str) -> tuple[str, list[str]]:
+    node = definition.get("nodes", {}).get(node_id, {})
+    prompt = wf.localized(node.get("prompt", ""), lang)
+    options = wf.localized(node.get("options", []), lang) or []
+    return prompt, list(options)
+
+
+async def _maybe_rephrase(db: Session, conversation: Conversation, prompt: str) -> str:
+    """With a real LLM configured, let it phrase the next question naturally
+    while keeping the workflow's intent. Falls back to the template prompt."""
+    config = llm.resolve_config(runtime_settings.llm_overrides(db))
+    if config.provider == "mock" or not prompt:
+        return prompt
+    system = runtime_settings.get(db, "system_prompt")
+    history = [
+        {"role": "assistant" if m.sender == "bot" else "user", "content": m.text}
+        for m in conversation.messages[-6:]
+    ]
+    instruction = (
+        f"Ask the client the following question, rephrased naturally in the "
+        f"conversation's language, in one short sentence. Keep the exact meaning. "
+        f"Question: {prompt}"
+    )
+    try:
+        result = await llm.complete(history + [{"role": "user", "content": instruction}],
+                                    config=config, system=system)
+        return result or prompt
+    except llm.LLMError:
+        return prompt
+
+
+async def _finalize(
+    db: Session,
+    conversation: Conversation,
+    definition: dict,
+    human_requested: bool = False,
+    abandoned: bool = False,
+) -> Lead | None:
+    """Create the Lead record, generate the summary and fan out notifications."""
+    answers = dict((conversation.state or {}).get("answers", {}))
+    if conversation.client_name and not answers.get("client_name"):
+        answers["client_name"] = conversation.client_name
+    if conversation.client_email and not answers.get("client_email"):
+        answers["client_email"] = conversation.client_email
+
+    transcript = [{"sender": m.sender, "text": m.text} for m in conversation.messages]
+    summary_text = await summary_service.generate_summary(
+        db, transcript, answers, conversation.language
+    )
+    score = score_lead(answers)
+    threshold = int(runtime_settings.get(db, "qualified_score_threshold") or 40)
+
+    if abandoned:
+        status = "Incomplete"
+    elif score >= threshold:
+        status = "Qualified"
+    else:
+        status = "New"
+
+    budget = answers.get("budget")
+    lead = Lead(
+        project_name=summary_service.project_name_from(answers),
+        client_name=str(answers.get("client_name", ""))[:255],
+        client_email=str(answers.get("client_email", ""))[:255],
+        client_phone=str(answers.get("client_phone", ""))[:64],
+        service=str(answers.get("service", ""))[:255],
+        budget=float(budget) if isinstance(budget, (int, float)) else None,
+        timeline=str(answers.get("timeline", ""))[:255],
+        summary=summary_text,
+        status=status,
+        score=score,
+        language=conversation.language,
+    )
+    db.add(lead)
+    db.flush()
+
+    conversation.lead_id = lead.id
+    conversation.status = "Abandoned" if abandoned else "Completed"
+    conversation.ended_at = utcnow()
+
+    detail = "Lead created from chat"
+    if human_requested:
+        detail += " (client requested a human)"
+    if abandoned:
+        detail = "Partial lead created from abandoned chat"
+    db.add(ActivityLog(lead_id=lead.id, actor="system", action="created", detail=detail))
+    db.commit()
+    db.refresh(lead)
+
+    # Notifications are best-effort: never fail the chat because of them.
+    try:
+        if not abandoned:
+            await telegram_service.notify_new_lead(db, lead)
+            await email_service.send_lead_emails(db, lead)
+        elif human_requested:
+            await telegram_service.notify_new_lead(db, lead)
+    except Exception:  # noqa: BLE001 — notification failures must not break intake
+        logger.exception("Notification fan-out failed for lead %s", lead.id)
+    return lead
+
+
+async def close_stale_conversations(db: Session, max_age_hours: int = 24) -> int:
+    """Mark active conversations older than the cutoff as Abandoned and keep
+    their partial answers as Incomplete leads (so staff can follow up)."""
+    cutoff = utcnow() - timedelta(hours=max_age_hours)
+    stale = db.scalars(
+        select(Conversation).where(
+            Conversation.status == "Active", Conversation.started_at < cutoff
+        )
+    ).all()
+    count = 0
+    for conversation in stale:
+        answers = (conversation.state or {}).get("answers", {})
+        workflow = db.get(Workflow, conversation.workflow_id)
+        definition = workflow.definition if workflow else wf.DEFAULT_WORKFLOW
+        if any(str(v).strip() for v in answers.values()):
+            await _finalize(db, conversation, definition, abandoned=True)
+        else:
+            conversation.status = "Abandoned"
+            conversation.ended_at = utcnow()
+            db.commit()
+        count += 1
+    return count

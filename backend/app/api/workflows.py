@@ -22,11 +22,15 @@ def _validate_definition(definition: dict) -> None:
     for node_id, node in nodes.items():
         next_id = node.get("next", "")
         if next_id and next_id not in nodes:
-            raise HTTPException(status_code=422, detail=f"Node '{node_id}' points to unknown node '{next_id}'")
+            raise HTTPException(
+                status_code=422, detail=f"Node '{node_id}' points to unknown node '{next_id}'"
+            )
         for branch in node.get("branches", []):
             goto = branch.get("goto", "")
             if goto and goto not in nodes:
-                raise HTTPException(status_code=422, detail=f"Branch in '{node_id}' points to unknown node '{goto}'")
+                raise HTTPException(
+                    status_code=422, detail=f"Branch in '{node_id}' points to unknown node '{goto}'"
+                )
 
 
 def _get_workflow(db: Session, workflow_id: int, user: User) -> Workflow:
@@ -41,8 +45,12 @@ def list_templates(_: User = Depends(require_admin)):
     """Starter flows and reusable step blueprints for the visual builder."""
     return {
         "templates": [
-            {"key": t["key"], "name": t["name"], "description": t["description"],
-             "definition": t["definition"]}
+            {
+                "key": t["key"],
+                "name": t["name"],
+                "description": t["description"],
+                "definition": t["definition"],
+            }
             for t in workflow_templates.TEMPLATES
         ],
         "node_library": workflow_templates.NODE_LIBRARY,
@@ -68,8 +76,14 @@ def simulate(body: dict, _: User = Depends(require_admin)):
 
     transcript: list[dict] = []
     step = wf.start(definition, {}, language)
-    transcript.append({"sender": "bot", "text": step.reply,
-                       "quick_replies": step.quick_replies, "node": step.state.get("current_node")})
+    transcript.append(
+        {
+            "sender": "bot",
+            "text": step.reply,
+            "quick_replies": step.quick_replies,
+            "node": step.state.get("current_node"),
+        }
+    )
     state = step.state
     for answer in answers[:50]:
         if step.done:
@@ -78,13 +92,24 @@ def simulate(body: dict, _: User = Depends(require_admin)):
         step = wf.advance(definition, state, str(answer), language)
         state = step.state
         if step.done:
-            transcript.append({"sender": "bot", "text": "[flow complete — lead would be created]",
-                               "quick_replies": [], "node": None})
+            transcript.append(
+                {
+                    "sender": "bot",
+                    "text": "[flow complete — lead would be created]",
+                    "quick_replies": [],
+                    "node": None,
+                }
+            )
         else:
-            transcript.append({"sender": "bot", "text": step.reply,
-                               "quick_replies": step.quick_replies,
-                               "node": state.get("current_node"),
-                               "clarification": step.needs_clarification})
+            transcript.append(
+                {
+                    "sender": "bot",
+                    "text": step.reply,
+                    "quick_replies": step.quick_replies,
+                    "node": state.get("current_node"),
+                    "clarification": step.needs_clarification,
+                }
+            )
     return {"transcript": transcript, "collected": state.get("answers", {}), "done": step.done}
 
 
@@ -104,26 +129,33 @@ def create_workflow(
 ):
     _validate_definition(body.definition)
     exists = db.scalars(
-        select(Workflow).where(
-            Workflow.workspace_id == admin.workspace_id, Workflow.name == body.name
-        )
+        select(Workflow).where(Workflow.workspace_id == admin.workspace_id, Workflow.name == body.name)
     ).first()
     if exists:
         raise HTTPException(status_code=409, detail="Workflow name already exists")
     workflow = Workflow(
-        workspace_id=admin.workspace_id, name=body.name, definition=body.definition,
-        is_default=1 if body.is_default else 0, prompt_name=body.prompt_name,
+        workspace_id=admin.workspace_id,
+        name=body.name,
+        definition=body.definition,
+        is_default=1 if body.is_default else 0,
+        prompt_name=body.prompt_name,
     )
     if body.is_default:
-        for other in db.scalars(
-            select(Workflow).where(Workflow.workspace_id == admin.workspace_id)
-        ).all():
+        for other in db.scalars(select(Workflow).where(Workflow.workspace_id == admin.workspace_id)).all():
             other.is_default = 0
     db.add(workflow)
     db.commit()
     db.refresh(workflow)
-    audit.record(db, admin.workspace_id, admin.email, "workflow_edited", "workflow", workflow.id,
-                 detail=f"created: {workflow.name}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "workflow_edited",
+        "workflow",
+        workflow.id,
+        detail=f"created: {workflow.name}",
+        request=request,
+    )
     return workflow
 
 
@@ -141,15 +173,21 @@ def update_workflow(
     workflow.definition = body.definition
     workflow.prompt_name = body.prompt_name
     if body.is_default:
-        for other in db.scalars(
-            select(Workflow).where(Workflow.workspace_id == admin.workspace_id)
-        ).all():
+        for other in db.scalars(select(Workflow).where(Workflow.workspace_id == admin.workspace_id)).all():
             other.is_default = 0
         workflow.is_default = 1
     db.commit()
     db.refresh(workflow)
-    audit.record(db, admin.workspace_id, admin.email, "workflow_edited", "workflow", workflow.id,
-                 detail=f"updated: {workflow.name}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "workflow_edited",
+        "workflow",
+        workflow.id,
+        detail=f"updated: {workflow.name}",
+        request=request,
+    )
     return workflow
 
 
@@ -166,5 +204,13 @@ def delete_workflow(
     name = workflow.name
     db.delete(workflow)
     db.commit()
-    audit.record(db, admin.workspace_id, admin.email, "workflow_edited", "workflow", workflow_id,
-                 detail=f"deleted: {name}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "workflow_edited",
+        "workflow",
+        workflow_id,
+        detail=f"deleted: {name}",
+        request=request,
+    )

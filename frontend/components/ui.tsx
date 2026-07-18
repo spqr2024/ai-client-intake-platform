@@ -182,6 +182,10 @@ export function Pagination({
   const page = Math.floor(offset / limit) + 1;
   const pages = Math.max(1, Math.ceil(total / limit));
   if (total <= limit) return null;
+  // Guard on the offset itself, not the derived page number: an offset that is
+  // not a multiple of `limit` still has earlier rows to go back to.
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
   return (
     <nav
       aria-label="Pagination"
@@ -193,7 +197,7 @@ export function Pagination({
       <div className="flex items-center gap-2">
         <button
           onClick={() => onChange(Math.max(0, offset - limit))}
-          disabled={page <= 1}
+          disabled={!hasPrev}
           className={`rounded-lg border border-slate-200 px-3 py-1.5 transition hover:bg-slate-100 disabled:opacity-40 ${focusRing}`}
         >
           ← Prev
@@ -203,7 +207,7 @@ export function Pagination({
         </span>
         <button
           onClick={() => onChange(offset + limit)}
-          disabled={page >= pages}
+          disabled={!hasNext}
           className={`rounded-lg border border-slate-200 px-3 py-1.5 transition hover:bg-slate-100 disabled:opacity-40 ${focusRing}`}
         >
           Next →

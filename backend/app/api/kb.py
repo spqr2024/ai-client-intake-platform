@@ -24,8 +24,11 @@ def _snapshot(db: Session, article: KnowledgeBaseArticle, actor: str) -> None:
     """Persist the current state before it is overwritten."""
     db.add(
         KBArticleVersion(
-            article_id=article.id, version=article.version, title=article.title,
-            content=article.content, created_by=actor,
+            article_id=article.id,
+            version=article.version,
+            title=article.title,
+            content=article.content,
+            created_by=actor,
         )
     )
 
@@ -76,8 +79,7 @@ async def search_articles(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    hits = await kb_service.search(db, q, workspace_id=user.workspace_id, limit=5,
-                                   log_source="admin")
+    hits = await kb_service.search(db, q, workspace_id=user.workspace_id, limit=5, log_source="admin")
     return [{"id": a.id, "title": a.title, "score": round(s, 3)} for a, s in hits]
 
 
@@ -89,16 +91,27 @@ async def create_article(
     admin: User = Depends(require_admin),
 ):
     article = KnowledgeBaseArticle(
-        workspace_id=admin.workspace_id, title=body.title, content=body.content,
-        language=body.language, source_type="manual",
+        workspace_id=admin.workspace_id,
+        title=body.title,
+        content=body.content,
+        language=body.language,
+        source_type="manual",
         doc_metadata={"characters": len(body.content)},
     )
     db.add(article)
     db.commit()
     db.refresh(article)
     await kb_service.index_article(db, article)
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", article.id,
-                 detail=f"created: {article.title}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        article.id,
+        detail=f"created: {article.title}",
+        request=request,
+    )
     return article
 
 
@@ -136,8 +149,16 @@ async def upload_document(
     db.commit()
     db.refresh(article)
     await kb_service.index_article(db, article)
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", article.id,
-                 detail=f"uploaded {source_type}: {filename}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        article.id,
+        detail=f"uploaded {source_type}: {filename}",
+        request=request,
+    )
     return article
 
 
@@ -159,19 +180,25 @@ async def update_article(
     db.commit()
     db.refresh(article)
     await kb_service.index_article(db, article)
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", article.id,
-                 detail=f"updated to v{article.version}: {article.title}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        article.id,
+        detail=f"updated to v{article.version}: {article.title}",
+        request=request,
+    )
     return article
 
 
 @router.get("/{article_id}/versions", response_model=list[KBVersionOut])
-def list_versions(article_id: int, db: Session = Depends(get_db),
-                  user: User = Depends(get_current_user)):
+def list_versions(article_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     article = db.scalars(
         select(KnowledgeBaseArticle)
         .options(selectinload(KnowledgeBaseArticle.versions))
-        .where(KnowledgeBaseArticle.id == article_id,
-               KnowledgeBaseArticle.workspace_id == user.workspace_id)
+        .where(KnowledgeBaseArticle.id == article_id, KnowledgeBaseArticle.workspace_id == user.workspace_id)
     ).first()
     if article is None:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -203,8 +230,16 @@ async def restore_version(
     db.commit()
     db.refresh(article)
     await kb_service.index_article(db, article)
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", article.id,
-                 detail=f"restored v{version} as v{article.version}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        article.id,
+        detail=f"restored v{version} as v{article.version}",
+        request=request,
+    )
     return article
 
 
@@ -232,8 +267,16 @@ def delete_article(
     kb_service.remove_article_index(db, article.id)
     db.delete(article)
     db.commit()
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", article_id,
-                 detail=f"deleted: {title}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        article_id,
+        detail=f"deleted: {title}",
+        request=request,
+    )
 
 
 @router.post("/reindex")
@@ -244,6 +287,14 @@ async def reindex(
 ):
     """Rebuild the semantic index for every article (after a provider switch)."""
     count = await kb_service.reindex_workspace(db, admin.workspace_id)
-    audit.record(db, admin.workspace_id, admin.email, "kb_updated", "kb", "",
-                 detail=f"reindexed {count} articles", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "kb_updated",
+        "kb",
+        "",
+        detail=f"reindexed {count} articles",
+        request=request,
+    )
     return {"indexed": count}

@@ -28,9 +28,10 @@ class TelegramError(Exception):
 
 def enabled(db: Session, workspace_id: int) -> bool:
     settings = get_settings()
-    return bool(settings.telegram_bot_token) and runtime_settings.get(
-        db, "telegram_enabled", workspace_id
-    ).lower() != "false"
+    return (
+        bool(settings.telegram_bot_token)
+        and runtime_settings.get(db, "telegram_enabled", workspace_id).lower() != "false"
+    )
 
 
 def workspace_chat_id(db: Session, workspace_id: int) -> str:
@@ -81,11 +82,13 @@ def build_lead_text(lead: Lead) -> str:
 
 
 def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
-    rows = [[
-        {"text": "✅ Accept", "callback_data": f"accept:{lead_id}"},
-        {"text": "❌ Reject", "callback_data": f"reject:{lead_id}"},
-        {"text": "📞 Call", "callback_data": f"call:{lead_id}"},
-    ]]
+    rows = [
+        [
+            {"text": "✅ Accept", "callback_data": f"accept:{lead_id}"},
+            {"text": "❌ Reject", "callback_data": f"reject:{lead_id}"},
+            {"text": "📞 Call", "callback_data": f"call:{lead_id}"},
+        ]
+    ]
     if deep_link:
         rows.append([{"text": "🔗 Open in CRM", "url": deep_link}])
     return {"inline_keyboard": rows}
@@ -130,11 +133,23 @@ async def _handle_callback(db: Session, callback: dict) -> dict:
         return {"ok": False}
 
     if action in ("accept", "reject"):
-        db.add(ActivityLog(lead_id=lead.id, actor=f"telegram:{actor}",
-                           action="status_change", detail=f"Status → {lead.status} (via Telegram)"))
+        db.add(
+            ActivityLog(
+                lead_id=lead.id,
+                actor=f"telegram:{actor}",
+                action="status_change",
+                detail=f"Status → {lead.status} (via Telegram)",
+            )
+        )
     else:
-        db.add(ActivityLog(lead_id=lead.id, actor=f"telegram:{actor}",
-                           action="call_requested", detail="Contact info requested via Telegram"))
+        db.add(
+            ActivityLog(
+                lead_id=lead.id,
+                actor=f"telegram:{actor}",
+                action="call_requested",
+                detail="Contact info requested via Telegram",
+            )
+        )
     db.commit()
 
     await _answer_callback(callback, reply)

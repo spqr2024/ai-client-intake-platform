@@ -33,9 +33,7 @@ def _build_pdf(text: str) -> bytes:
     out += f"xref\n0 {len(objects) + 1}\n".encode() + b"0000000000 65535 f \n"
     for offset in offsets:
         out += f"{offset:010d} 00000 n \n".encode()
-    out += (
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF".encode()
-    )
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF".encode()
     PdfWriter(io.BytesIO(bytes(out)))  # sanity check that the file parses
     return bytes(out)
 
@@ -60,10 +58,12 @@ def test_extract_pdf_text():
 
 
 def test_extract_docx_text_and_tables():
-    data = _build_docx([
-        "Service level agreement",
-        "We respond to critical incidents within two hours.",
-    ])
+    data = _build_docx(
+        [
+            "Service level agreement",
+            "We respond to critical incidents within two hours.",
+        ]
+    )
     source_type, text, metadata = documents.extract("sla.docx", data)
     assert source_type == "docx"
     assert "critical incidents" in text
@@ -71,24 +71,32 @@ def test_extract_docx_text_and_tables():
 
 
 def test_docx_upload_is_indexed(client, auth_headers):
-    data = _build_docx([
-        "Escalation policy",
-        "Priority one incidents are escalated to the on-call engineer immediately.",
-        "Priority two incidents are handled during business hours.",
-    ])
+    data = _build_docx(
+        [
+            "Escalation policy",
+            "Priority one incidents are escalated to the on-call engineer immediately.",
+            "Priority two incidents are handled during business hours.",
+        ]
+    )
     resp = client.post(
         "/api/kb/upload",
         headers=auth_headers,
-        files={"file": ("escalation.docx", io.BytesIO(data),
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={
+            "file": (
+                "escalation.docx",
+                io.BytesIO(data),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert resp.status_code == 201, resp.text
     article = resp.json()
     assert article["source_type"] == "docx"
     assert article["index_status"] == "indexed"
 
-    hits = client.get("/api/kb/search", headers=auth_headers,
-                      params={"q": "what is the escalation policy for incidents"}).json()
+    hits = client.get(
+        "/api/kb/search", headers=auth_headers, params={"q": "what is the escalation policy for incidents"}
+    ).json()
     assert any(h["id"] == article["id"] for h in hits)
 
 

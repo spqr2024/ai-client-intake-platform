@@ -36,12 +36,24 @@ def create_prompt_version(
     admin: User = Depends(require_admin),
 ):
     prompt = prompt_service.create_version(
-        db, admin.workspace_id, body.name, body.kind, body.content,
-        created_by=admin.email, activate=body.activate,
+        db,
+        admin.workspace_id,
+        body.name,
+        body.kind,
+        body.content,
+        created_by=admin.email,
+        activate=body.activate,
     )
-    audit.record(db, admin.workspace_id, admin.email, "prompt_edited", "prompt", prompt.id,
-                 detail=f"{prompt.name} v{prompt.version}"
-                 + (" (activated)" if body.activate else ""), request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "prompt_edited",
+        "prompt",
+        prompt.id,
+        detail=f"{prompt.name} v{prompt.version}" + (" (activated)" if body.activate else ""),
+        request=request,
+    )
     return prompt
 
 
@@ -54,8 +66,16 @@ def activate_prompt(
 ):
     """Activate any version — activating an older version IS the rollback."""
     prompt = prompt_service.activate(db, _get_prompt(db, prompt_id, admin))
-    audit.record(db, admin.workspace_id, admin.email, "prompt_activated", "prompt", prompt.id,
-                 detail=f"{prompt.name} v{prompt.version}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "prompt_activated",
+        "prompt",
+        prompt.id,
+        detail=f"{prompt.name} v{prompt.version}",
+        request=request,
+    )
     return prompt
 
 
@@ -67,8 +87,16 @@ def deactivate_prompt(
     admin: User = Depends(require_admin),
 ):
     prompt = prompt_service.deactivate(db, _get_prompt(db, prompt_id, admin))
-    audit.record(db, admin.workspace_id, admin.email, "prompt_deactivated", "prompt", prompt.id,
-                 detail=f"{prompt.name} v{prompt.version}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "prompt_deactivated",
+        "prompt",
+        prompt.id,
+        detail=f"{prompt.name} v{prompt.version}",
+        request=request,
+    )
     return prompt
 
 
@@ -85,8 +113,8 @@ async def test_prompt(
         return {
             "provider": "mock",
             "output": f"[mock preview] system prompt accepted ({len(body.content)} chars). "
-                      f"Sample client message: {body.sample_input!r} → the assistant would "
-                      "respond according to your prompt once a real provider is configured.",
+            f"Sample client message: {body.sample_input!r} → the assistant would "
+            "respond according to your prompt once a real provider is configured.",
         }
     try:
         output = await llm.complete(

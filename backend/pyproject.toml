@@ -1,9 +1,50 @@
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+extend-exclude = [".venv", "data", "uploads"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B"]
-# B008: FastAPI Depends() in defaults is idiomatic.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+# B008: FastAPI's Depends() in argument defaults is the documented idiom.
 # E501: long lines are almost all localized user-facing strings.
-ignore = ["B008", "E501"]
+# RUF001/003: prompts and UI copy intentionally use typographic dashes/quotes.
+ignore = ["B008", "E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may shadow builtins and use assert-heavy style.
+"tests/*" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/seed.py", "app/demo.py"]
+
+[tool.coverage.report]
+# Enforced in CI; keeps the suite honest as the codebase grows.
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

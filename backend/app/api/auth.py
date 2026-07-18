@@ -28,8 +28,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.scalars(select(User).where(User.email == body.email.lower())).first()
     if user is None or not verify_password(body.password, user.password_hash):
         if user is not None:
-            audit.record(db, user.workspace_id, body.email, "login_failed", "user",
-                         user.id, request=request)
+            audit.record(db, user.workspace_id, body.email, "login_failed", "user", user.id, request=request)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     login_succeeded(body.email, ip)

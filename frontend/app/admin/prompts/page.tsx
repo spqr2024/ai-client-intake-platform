@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, PromptOut } from "@/lib/api";
+import { PageHeader, Toast } from "@/components/ui";
 
 export default function PromptsPage() {
   const [prompts, setPrompts] = useState<PromptOut[]>([]);
@@ -89,13 +90,13 @@ export default function PromptsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Prompt management</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Versioned prompts with activation and rollback. Assign a prompt to a workflow by name
-          on the Workflows page; &quot;system&quot; and &quot;summary&quot; are used by default.
-        </p>
-      </div>
+      <PageHeader
+        title="Prompt management"
+        description={
+          "Versioned prompts with activation and rollback. Assign a prompt to a workflow by name " +
+          "on the Workflows page; “system” and “summary” are used by default."
+        }
+      />
 
       <div className="grid gap-6 lg:grid-cols-4">
         <div className="space-y-2 lg:col-span-1">
@@ -161,10 +162,8 @@ export default function PromptsPage() {
               className="h-48 w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:border-indigo-400"
             />
             {message && (
-              <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
-                message.kind === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-              }`}>
-                {message.text}
+              <div className="mt-3">
+                <Toast kind={message.kind} message={message.text} onDismiss={() => setMessage(null)} />
               </div>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">

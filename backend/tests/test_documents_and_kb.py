@@ -81,8 +81,11 @@ def test_upload_markdown_document_indexes_it(client, auth_headers):
     # "kickoff"), not true synonyms ("money back"). Configuring a real
     # EMBEDDING_PROVIDER is what buys synonym recall; the pipeline itself is
     # identical either way.
-    hits = client.get("/api/kb/search", headers=auth_headers,
-                      params={"q": "what is the refund policy after the kickoff meeting"}).json()
+    hits = client.get(
+        "/api/kb/search",
+        headers=auth_headers,
+        params={"q": "what is the refund policy after the kickoff meeting"},
+    ).json()
     assert any(h["id"] == article["id"] for h in hits)
 
 
@@ -97,12 +100,14 @@ def test_upload_rejects_unsupported_type(client, auth_headers):
 
 def test_article_versions_and_restore(client, auth_headers):
     created = client.post(
-        "/api/kb", headers=auth_headers,
+        "/api/kb",
+        headers=auth_headers,
         json={"title": "Support hours", "content": "We answer 9-5 CET on weekdays."},
     ).json()
 
     client.put(
-        f"/api/kb/{created['id']}", headers=auth_headers,
+        f"/api/kb/{created['id']}",
+        headers=auth_headers,
         json={"title": "Support hours", "content": "We answer 24/7.", "language": "en"},
     )
     updated = client.get("/api/kb", headers=auth_headers).json()
@@ -114,20 +119,22 @@ def test_article_versions_and_restore(client, auth_headers):
     assert len(versions) == 1
     assert "9-5 CET" in versions[0]["content"]
 
-    restored = client.post(
-        f"/api/kb/{created['id']}/versions/1/restore", headers=auth_headers
-    ).json()
+    restored = client.post(f"/api/kb/{created['id']}/versions/1/restore", headers=auth_headers).json()
     assert "9-5 CET" in restored["content"]
     assert restored["version"] == 3  # rollback is recorded as a new version
 
 
 def test_kb_stats_track_searches_and_misses(client, auth_headers):
-    client.post("/api/kb", headers=auth_headers,
-                json={"title": "Onboarding process",
-                      "content": "Onboarding starts with a kickoff call and a shared Slack channel."})
+    client.post(
+        "/api/kb",
+        headers=auth_headers,
+        json={
+            "title": "Onboarding process",
+            "content": "Onboarding starts with a kickoff call and a shared Slack channel.",
+        },
+    )
     client.get("/api/kb/search", headers=auth_headers, params={"q": "how does onboarding work"})
-    client.get("/api/kb/search", headers=auth_headers,
-               params={"q": "do you sell industrial diamonds"})
+    client.get("/api/kb/search", headers=auth_headers, params={"q": "do you sell industrial diamonds"})
 
     stats = client.get("/api/kb/stats", headers=auth_headers).json()
     assert stats["total_searches"] >= 2
@@ -146,8 +153,9 @@ def test_formats_endpoint_reports_availability(client, auth_headers):
 
 
 def test_single_article_reindex(client, auth_headers):
-    article = client.post("/api/kb", headers=auth_headers,
-                          json={"title": "Reindex me", "content": "Some indexable content."}).json()
+    article = client.post(
+        "/api/kb", headers=auth_headers, json={"title": "Reindex me", "content": "Some indexable content."}
+    ).json()
     resp = client.post(f"/api/kb/{article['id']}/reindex", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["index_status"] == "indexed"

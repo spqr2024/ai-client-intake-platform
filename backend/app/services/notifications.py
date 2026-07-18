@@ -40,34 +40,55 @@ def lead_link(lead_id: int) -> str:
 
 
 def create_inapp(
-    db: Session, workspace_id: int, event: str, title: str, body: str, link: str = "",
+    db: Session,
+    workspace_id: int,
+    event: str,
+    title: str,
+    body: str,
+    link: str = "",
     user_id: int | None = None,
 ) -> None:
     """In-app rows: one per targeted user, or one per workspace member."""
     if user_id is not None:
         targets = [user_id]
     else:
-        targets = list(
-            db.scalars(select(User.id).where(User.workspace_id == workspace_id)).all()
-        )
+        targets = list(db.scalars(select(User.id).where(User.workspace_id == workspace_id)).all())
     for target in targets:
         db.add(
             Notification(
-                workspace_id=workspace_id, user_id=target, channel="inapp", event=event,
-                title=title[:255], body=body, link=link, status="sent",
+                workspace_id=workspace_id,
+                user_id=target,
+                channel="inapp",
+                event=event,
+                title=title[:255],
+                body=body,
+                link=link,
+                status="sent",
             )
         )
     db.commit()
 
 
 async def dispatch_channel(
-    db: Session, workspace_id: int, channel: str, event: str, title: str, body: str,
-    recipient: str, link: str = "", extra: dict | None = None,
+    db: Session,
+    workspace_id: int,
+    channel: str,
+    event: str,
+    title: str,
+    body: str,
+    recipient: str,
+    link: str = "",
+    extra: dict | None = None,
 ) -> Notification:
     """Create a delivery-log row and enqueue the actual send."""
     notification = Notification(
-        workspace_id=workspace_id, channel=channel, event=event, title=title[:255],
-        body=body, link=link, recipient=recipient[:255],
+        workspace_id=workspace_id,
+        channel=channel,
+        event=event,
+        title=title[:255],
+        body=body,
+        link=link,
+        recipient=recipient[:255],
     )
     if channel not in CHANNEL_SENDERS:
         notification.status = "skipped"
@@ -117,8 +138,7 @@ async def _send_email(db: Session, notification: Notification, payload: dict) ->
     html_body = email_service.render_html(
         notification.body, brand["brand_company_name"], brand["brand_primary_color"]
     )
-    await email_service.send_raw(notification.recipient, notification.title,
-                                 notification.body, html_body)
+    await email_service.send_raw(notification.recipient, notification.title, notification.body, html_body)
 
 
 async def _send_telegram(db: Session, notification: Notification, payload: dict) -> None:
@@ -141,7 +161,10 @@ async def notify_new_lead(db: Session, lead: Lead) -> None:
     budget = f"${lead.budget:,.0f}" if lead.budget else "—"
 
     create_inapp(
-        db, workspace_id, "lead.created", title,
+        db,
+        workspace_id,
+        "lead.created",
+        title,
         f"{lead.client_name or 'Anonymous'} · {lead.service or '—'} · {budget} · score {lead.score}",
         link,
     )
@@ -151,21 +174,29 @@ async def notify_new_lead(db: Session, lead: Lead) -> None:
             subject, text_body, _ = email_service.build_message(
                 db, workspace_id, "client_email", email_service.lead_context(lead)
             )
-            await dispatch_channel(db, workspace_id, "email", "lead.created",
-                                   subject, text_body, lead.client_email, link)
+            await dispatch_channel(
+                db, workspace_id, "email", "lead.created", subject, text_body, lead.client_email, link
+            )
         staff_email = runtime_settings.get(db, "staff_notification_email", workspace_id)
         if staff_email:
             subject, text_body, _ = email_service.build_message(
                 db, workspace_id, "staff_email", email_service.lead_context(lead)
             )
-            await dispatch_channel(db, workspace_id, "email", "lead.created",
-                                   subject, text_body, staff_email, link)
+            await dispatch_channel(
+                db, workspace_id, "email", "lead.created", subject, text_body, staff_email, link
+            )
 
     chat_id = telegram_service.workspace_chat_id(db, workspace_id)
     if chat_id and telegram_service.enabled(db, workspace_id):
         await dispatch_channel(
-            db, workspace_id, "telegram", "lead.created", title,
-            telegram_service.build_lead_text(lead), chat_id, link,
+            db,
+            workspace_id,
+            "telegram",
+            "lead.created",
+            title,
+            telegram_service.build_lead_text(lead),
+            chat_id,
+            link,
             extra={"lead_id": lead.id, "with_actions": True},
         )
 
@@ -180,5 +211,6 @@ async def notify_lead_status_change(db: Session, lead: Lead, old_status: str, ac
 
     chat_id = telegram_service.workspace_chat_id(db, workspace_id)
     if chat_id and telegram_service.enabled(db, workspace_id):
-        await dispatch_channel(db, workspace_id, "telegram", "lead.status_changed",
-                               title, f"🔁 {body}\n{link}", chat_id, link)
+        await dispatch_channel(
+            db, workspace_id, "telegram", "lead.status_changed", title, f"🔁 {body}\n{link}", chat_id, link
+        )

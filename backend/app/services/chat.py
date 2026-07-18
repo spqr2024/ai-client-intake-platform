@@ -42,8 +42,16 @@ class ChatReply:
 
 
 HUMAN_KEYWORDS = (
-    "talk to a person", "talk to a human", "speak to a human", "real person",
-    "human please", "operator", "оператор", "жива людина", "людина", "менеджер",
+    "talk to a person",
+    "talk to a human",
+    "speak to a human",
+    "real person",
+    "human please",
+    "operator",
+    "оператор",
+    "жива людина",
+    "людина",
+    "менеджер",
 )
 
 TEXTS = {
@@ -71,11 +79,11 @@ def _t(key: str, lang: str, **kwargs) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
-def _add_message(
-    db: Session, conversation: Conversation, sender: str, text: str, **meta
-) -> Message:
+def _add_message(db: Session, conversation: Conversation, sender: str, text: str, **meta) -> Message:
     message = Message(
-        conversation_id=conversation.id, sender=sender, text=text,
+        conversation_id=conversation.id,
+        sender=sender,
+        text=text,
         meta={"node": (conversation.state or {}).get("current_node", ""), **meta},
     )
     db.add(message)
@@ -89,7 +97,9 @@ def get_default_workflow(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) 
         workflow = db.scalars(scoped).first()
     if workflow is None:
         workflow = Workflow(
-            workspace_id=workspace_id, name="Default intake", is_default=1,
+            workspace_id=workspace_id,
+            name="Default intake",
+            is_default=1,
             definition=wf.DEFAULT_WORKFLOW,
         )
         db.add(workflow)
@@ -169,10 +179,18 @@ async def process_message(db: Session, conversation: Conversation, text: str) ->
         if hits:
             article, kb_score = hits[0]
             question, options = _current_prompt(definition, current_node, lang)
-            reply_text = _t("kb_prefix", lang, title=article.title,
-                            content=article.content[:600], question=question)
-            _add_message(db, conversation, "bot", reply_text, event="kb_answer",
-                         kb_article_id=article.id, kb_score=kb_score)
+            reply_text = _t(
+                "kb_prefix", lang, title=article.title, content=article.content[:600], question=question
+            )
+            _add_message(
+                db,
+                conversation,
+                "bot",
+                reply_text,
+                event="kb_answer",
+                kb_article_id=article.id,
+                kb_score=kb_score,
+            )
             db.commit()
             return ChatReply(bot_message=reply_text, quick_replies=options)
 
@@ -187,12 +205,16 @@ async def process_message(db: Session, conversation: Conversation, text: str) ->
         reply_text = _t("thanks", lang, summary=summary_text)
         _add_message(db, conversation, "bot", reply_text, event="summary")
         db.commit()
-        return ChatReply(bot_message=reply_text, done=True,
-                         lead_id=lead.id if lead else None, summary=summary_text)
+        return ChatReply(
+            bot_message=reply_text, done=True, lead_id=lead.id if lead else None, summary=summary_text
+        )
 
     reply_text = await _maybe_rephrase(db, conversation, workflow, step.reply)
     _add_message(
-        db, conversation, "bot", reply_text,
+        db,
+        conversation,
+        "bot",
+        reply_text,
         event="clarification" if step.needs_clarification else "question",
     )
     db.commit()
@@ -206,18 +228,14 @@ def _current_prompt(definition: dict, node_id: str, lang: str) -> tuple[str, lis
     return prompt, list(options)
 
 
-async def _maybe_rephrase(
-    db: Session, conversation: Conversation, workflow: Workflow, prompt: str
-) -> str:
+async def _maybe_rephrase(db: Session, conversation: Conversation, workflow: Workflow, prompt: str) -> str:
     """With a real LLM configured, let it phrase the next question naturally
     while keeping the workflow's intent. Context comes from the memory module
     (short-term messages + compressed long-term summary, token-budgeted)."""
     config = llm.resolve_config(runtime_settings.llm_overrides(db, conversation.workspace_id))
     if config.provider == "mock" or not prompt:
         return prompt
-    system = prompt_service.resolve(
-        db, conversation.workspace_id, "system", workflow.prompt_name
-    )
+    system = prompt_service.resolve(db, conversation.workspace_id, "system", workflow.prompt_name)
     context = await memory_service.build_context(db, conversation)
     instruction = (
         f"Ask the client the following question, rephrased naturally in the "
@@ -226,8 +244,9 @@ async def _maybe_rephrase(
     )
     try:
         result = await llm.complete(
-            context.messages + [{"role": "user", "content": instruction}],
-            config=config, system=system,
+            [*context.messages, {"role": "user", "content": instruction}],
+            config=config,
+            system=system,
         )
         return result or prompt
     except llm.LLMError:
@@ -251,7 +270,11 @@ async def _finalize(
 
     transcript = [{"sender": m.sender, "text": m.text} for m in conversation.messages]
     summary_text = await summary_service.generate_summary(
-        db, transcript, answers, conversation.language, workspace_id,
+        db,
+        transcript,
+        answers,
+        conversation.language,
+        workspace_id,
         workflow_prompt_name=workflow.prompt_name if workflow else "",
     )
     score = score_lead(answers)
@@ -285,7 +308,7 @@ async def _finalize(
         summary=summary_text,
         status=status,
         priority=priority,
-        tags=(["human-requested"] if human_requested else []),
+        tags=["human-requested"] if human_requested else [],
         score=score,
         language=conversation.language,
     )
@@ -309,17 +332,15 @@ async def _finalize(
     try:
         if not abandoned or human_requested:
             await notification_service.notify_new_lead(db, lead)
-    except Exception:  # noqa: BLE001 — notification failures must not break intake
+    except Exception:
         logger.exception("Notification fan-out failed for lead %s", lead.id)
 
     try:
         export_mode = runtime_settings.get(db, "crm_export_on", workspace_id)
-        should_export = export_mode == "all" or (
-            export_mode == "qualified" and status == "Qualified"
-        )
+        should_export = export_mode == "all" or (export_mode == "qualified" and status == "Qualified")
         if should_export and not abandoned:
             await crm_service.export_lead(db, lead)
-    except Exception:  # noqa: BLE001 — CRM outages must not break intake
+    except Exception:
         logger.exception("CRM export failed to queue for lead %s", lead.id)
     return lead
 
@@ -329,9 +350,7 @@ async def close_stale_conversations(db: Session, max_age_hours: int = 24) -> int
     their partial answers as Incomplete leads (so staff can follow up)."""
     cutoff = utcnow() - timedelta(hours=max_age_hours)
     stale = db.scalars(
-        select(Conversation).where(
-            Conversation.status == "Active", Conversation.started_at < cutoff
-        )
+        select(Conversation).where(Conversation.status == "Active", Conversation.started_at < cutoff)
     ).all()
     count = 0
     for conversation in stale:

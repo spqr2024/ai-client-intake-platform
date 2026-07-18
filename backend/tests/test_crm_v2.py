@@ -24,7 +24,8 @@ def test_pipeline_endpoint_groups_by_status(client, auth_headers, lead_id):
 
 def test_tags_priority_followup(client, auth_headers, lead_id):
     resp = client.patch(
-        f"/api/leads/{lead_id}", headers=auth_headers,
+        f"/api/leads/{lead_id}",
+        headers=auth_headers,
         json={
             "tags": ["vip", "design"],
             "priority": "Urgent",
@@ -42,31 +43,33 @@ def test_tags_priority_followup(client, auth_headers, lead_id):
     filtered = client.get("/api/leads", headers=auth_headers, params={"priority": "Urgent"}).json()
     assert any(lead["id"] == lead_id for lead in filtered)
 
-    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers,
-                        json={"clear_follow_up": True})
+    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers, json={"clear_follow_up": True})
     assert resp.json()["follow_up_at"] is None
 
 
 def test_custom_pipeline_statuses(client, auth_headers, lead_id):
     # Add a custom stage to the workspace pipeline, then use it.
     client.put(
-        "/api/settings", headers=auth_headers,
-        json={"values": {"pipeline_statuses":
-                         "New,Qualified,In Progress,Proposal Sent,Converted,Rejected,Closed,Incomplete"}},
+        "/api/settings",
+        headers=auth_headers,
+        json={
+            "values": {
+                "pipeline_statuses": "New,Qualified,In Progress,Proposal Sent,Converted,Rejected,Closed,Incomplete"
+            }
+        },
     )
-    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers,
-                        json={"status": "Proposal Sent"})
+    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "Proposal Sent"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "Proposal Sent"
 
-    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers,
-                        json={"status": "Not A Stage"})
+    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "Not A Stage"})
     assert resp.status_code == 422
 
 
 def test_internal_comment(client, auth_headers, lead_id):
     resp = client.post(
-        f"/api/leads/{lead_id}/notes", headers=auth_headers,
+        f"/api/leads/{lead_id}/notes",
+        headers=auth_headers,
         json={"text": "Discussed scope on call", "kind": "comment"},
     )
     assert resp.status_code == 201
@@ -90,6 +93,5 @@ def test_replay_timeline(client, auth_headers, lead_id):
 
 
 def test_search_includes_summary(client, auth_headers, lead_id):
-    hits = client.get("/api/leads", headers=auth_headers,
-                      params={"search": "Portfolio refresh"}).json()
+    hits = client.get("/api/leads", headers=auth_headers, params={"search": "Portfolio refresh"}).json()
     assert any(lead["id"] == lead_id for lead in hits)

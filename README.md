@@ -72,6 +72,19 @@ Key design decisions:
 - **Stateless API** — conversation state, memory and queues live in DB/Redis, so
   replicas scale horizontally.
 
+## 🧱 Tech stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| **API** | FastAPI · Python 3.12 · SQLAlchemy 2 (typed ORM) · Pydantic v2 | Async-native, generates OpenAPI for free, typed models end to end |
+| **Web** | Next.js 15 (App Router) · React 19 · TypeScript strict · Tailwind v4 | Server-rendered public page for SEO, client-side dashboard, one toolchain |
+| **Data** | PostgreSQL (prod) · SQLite (dev, zero-config) | Same SQLAlchemy code path both ways; nothing to install to start |
+| **Cache / queue** | Redis, optional | Cluster-wide rate limits and durable retries; degrades to in-process |
+| **AI** | OpenAI · Anthropic · Gemini · OpenRouter · offline mock | Provider-agnostic behind one interface; the mock keeps tests deterministic |
+| **Tests** | pytest + coverage gate · Vitest + Testing Library | 136 tests, no API keys or network required |
+| **Quality** | Ruff (lint + format) · ESLint · tsc strict · pre-commit | Enforced in CI, not by convention |
+| **Ops** | Docker (non-root, multi-stage) · Compose · GitHub Actions · Prometheus `/metrics` | Reproducible builds, dependency audits, image scanning in CI |
+
 ## 🚀 Quick start
 
 ### Docker (Postgres + Redis + backend + frontend)
@@ -82,7 +95,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-### Local dev (zero dependencies beyond Python + Node)
+### Installation — local dev (nothing beyond Python 3.12 + Node 22)
 
 ```bash
 # Backend — http://localhost:8000 (Swagger at /docs)
@@ -99,8 +112,41 @@ cd frontend && npm install && npm run dev
 Open **http://localhost:3000** (chat widget bottom-right).
 Admin: **/admin** — `admin@example.com` / `admin12345`. Seeded manager: `manager@example.com` / `manager123`.
 
-Existing v1 databases upgrade automatically on first start (additive migrator,
+Existing databases upgrade automatically on first start (additive migrator,
 no data loss).
+
+With `make` available, every routine task has a shortcut — run `make help`:
+
+```bash
+make setup     # install backend + frontend dependencies
+make demo      # API with a freshly provisioned demo workspace
+make frontend  # web app in dev mode
+make check     # everything CI runs: lint + types + all tests
+make format    # ruff format + prettier
+make docker-up # full stack: Postgres + Redis + API + web
+```
+
+## 🎭 Demo mode
+
+`DEMO_MODE=true` (default in `.env.example`) provisions a complete, believable
+workspace the first time the API starts against an empty database:
+
+- **12 leads** spread across every pipeline stage, with realistic budgets,
+  tags, priorities and follow-up reminders
+- **Full chat transcripts** with replay metadata, including a Ukrainian
+  conversation and four drop-offs so funnel/abandonment analytics are non-trivial
+- **5 knowledge-base articles**, indexed at boot so the bot answers FAQs immediately
+- **Branding, notifications and activity history** already populated
+
+It is **idempotent** (re-running never duplicates) and **inert once real data
+exists** (it only seeds a workspace with zero leads). Turn it off in production.
+
+```bash
+make demo                       # or: DEMO_MODE=true uvicorn app.main:app
+# Admin dashboard → admin@example.com / admin12345
+```
+
+For a scripted, non-random dataset instead, use `make seed`.
 
 ### Enabling production integrations
 
@@ -178,6 +224,81 @@ Then capture these five views (admin login: `admin@example.com` / `admin12345`):
 | Lead detail + replay | `/admin/leads/1` | AI summary, transcript, step-by-step replay |
 | AI analytics | `/admin/analytics` | Funnel, drop-off by workflow node, confidence |
 | Workflow builder | `/admin/workflows` | Visual step editor with live flow validation |
+
+## ❓ FAQ
+
+<details>
+<summary><b>Do I need an OpenAI key to run this?</b></summary>
+
+No. The default `mock` provider is a deterministic offline implementation, and
+the whole test suite runs without a single API key. Intake logic is a state
+machine, so the product is fully functional offline — an LLM only rephrases
+questions, writes summaries and compresses memory. Add a key when you want
+those touches.
+</details>
+
+<details>
+<summary><b>Why is the conversation a state machine instead of "just an LLM"?</b></summary>
+
+Three reasons that matter commercially: lead capture stays **reproducible**
+(the same answers always produce the same lead), it cannot be **prompt-injected**
+into skipping qualification steps, and the product **still works** when a
+provider has an outage. LLMs improve the phrasing; they are not load-bearing.
+</details>
+
+<details>
+<summary><b>Is it really multi-tenant?</b></summary>
+
+Yes. `workspace_id` is on every domain table, every authenticated query filters
+by the caller's workspace, and cross-tenant access returns **404 rather than
+403** so record existence is never leaked. There are dedicated isolation tests.
+</details>
+
+<details>
+<summary><b>Do I need Redis?</b></summary>
+
+Only for multi-replica deployments. Without `REDIS_URL` the cache, rate limiter
+and task queue run in-process with identical semantics; set it and they become
+cluster-wide. Nothing in the application imports Redis directly.
+</details>
+
+<details>
+<summary><b>How do I add a CRM, an AI provider or a notification channel?</b></summary>
+
+Each is a registry: write one class and register it. A new CRM is a
+`CRMProvider` subclass plus `register_provider(...)` — no existing file changes,
+including the settings layer, which accepts a provider's option keys
+dynamically. Same pattern for embeddings, email and notification channels.
+</details>
+
+<details>
+<summary><b>Why isn't the knowledge base finding an obviously related document?</b></summary>
+
+The default offline embedder is a feature-hasher: it matches morphological
+variants ("refund"/"refunds"), not synonyms ("money back"). Set a real
+`EMBEDDING_PROVIDER` and run **Re-index all** for true semantic recall. The
+retrieval pipeline is identical either way. The KB dashboard also lists
+**questions it could not answer** — each is a document you're missing.
+</details>
+
+<details>
+<summary><b>Can this be deployed for a paying customer today?</b></summary>
+
+Yes — see [DEPLOYMENT.md](docs/DEPLOYMENT.md), which starts with a pre-flight
+checklist (rotate `JWT_SECRET`, disable demo mode, managed Postgres, TLS).
+Containers run as non-root, readiness and liveness are separate probes, and
+migrations are additive and idempotent. The known gaps are listed honestly in
+[ROADMAP.md](ROADMAP.md).
+</details>
+
+<details>
+<summary><b>Why an in-house migrator instead of Alembic?</b></summary>
+
+Deliberate trade-off for this stage: the additive migrator makes clone-and-run
+frictionless and is idempotent (CI verifies it across repeated runs). It never
+drops a column older code reads, so image rollbacks stay safe. DEPLOYMENT.md
+documents exactly how to graduate to Alembic when schema changes get riskier.
+</details>
 
 ## 📚 More docs
 

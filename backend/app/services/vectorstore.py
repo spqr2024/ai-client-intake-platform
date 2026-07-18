@@ -21,15 +21,24 @@ from app.models import KBChunk, KBEmbedding
 
 class VectorStore(ABC):
     @abstractmethod
-    def upsert(self, db: Session, workspace_id: int, article_id: int, chunk_id: int,
-               vector: list[float], provider: str, model: str) -> None: ...
+    def upsert(
+        self,
+        db: Session,
+        workspace_id: int,
+        article_id: int,
+        chunk_id: int,
+        vector: list[float],
+        provider: str,
+        model: str,
+    ) -> None: ...
 
     @abstractmethod
     def remove_article(self, db: Session, article_id: int) -> None: ...
 
     @abstractmethod
-    def search(self, db: Session, workspace_id: int, vector: list[float],
-               limit: int, provider: str, model: str) -> list[tuple[int, int, float]]:
+    def search(
+        self, db: Session, workspace_id: int, vector: list[float], limit: int, provider: str, model: str
+    ) -> list[tuple[int, int, float]]:
         """Return [(article_id, chunk_id, cosine_similarity)] sorted descending."""
 
     @abstractmethod
@@ -48,8 +57,16 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 class DatabaseVectorStore(VectorStore):
-    def upsert(self, db: Session, workspace_id: int, article_id: int, chunk_id: int,
-               vector: list[float], provider: str, model: str) -> None:
+    def upsert(
+        self,
+        db: Session,
+        workspace_id: int,
+        article_id: int,
+        chunk_id: int,
+        vector: list[float],
+        provider: str,
+        model: str,
+    ) -> None:
         row = db.scalars(select(KBEmbedding).where(KBEmbedding.chunk_id == chunk_id)).first()
         if row is None:
             row = KBEmbedding(workspace_id=workspace_id, article_id=article_id, chunk_id=chunk_id)
@@ -63,8 +80,9 @@ class DatabaseVectorStore(VectorStore):
     def remove_article(self, db: Session, article_id: int) -> None:
         db.execute(delete(KBEmbedding).where(KBEmbedding.article_id == article_id))
 
-    def search(self, db: Session, workspace_id: int, vector: list[float],
-               limit: int, provider: str, model: str) -> list[tuple[int, int, float]]:
+    def search(
+        self, db: Session, workspace_id: int, vector: list[float], limit: int, provider: str, model: str
+    ) -> list[tuple[int, int, float]]:
         rows = db.execute(
             select(KBEmbedding.article_id, KBEmbedding.chunk_id, KBEmbedding.vector).where(
                 KBEmbedding.workspace_id == workspace_id,
@@ -72,32 +90,21 @@ class DatabaseVectorStore(VectorStore):
                 KBEmbedding.model == model,
             )
         ).all()
-        scored = [
-            (article_id, chunk_id, cosine(vector, stored))
-            for article_id, chunk_id, stored in rows
-        ]
+        scored = [(article_id, chunk_id, cosine(vector, stored)) for article_id, chunk_id, stored in rows]
         scored.sort(key=lambda item: item[2], reverse=True)
         return scored[:limit]
 
     def count(self, db: Session, workspace_id: int) -> int:
-        return len(
-            db.execute(
-                select(KBEmbedding.id).where(KBEmbedding.workspace_id == workspace_id)
-            ).all()
-        )
+        return len(db.execute(select(KBEmbedding.id).where(KBEmbedding.workspace_id == workspace_id)).all())
 
     def prune_orphans(self, db: Session, article_id: int, keep_chunk_ids: set[int]) -> None:
         """Drop embeddings whose chunk disappeared after a re-chunk."""
-        stale = db.scalars(
-            select(KBEmbedding).where(KBEmbedding.article_id == article_id)
-        ).all()
+        stale = db.scalars(select(KBEmbedding).where(KBEmbedding.article_id == article_id)).all()
         for row in stale:
             if row.chunk_id not in keep_chunk_ids:
                 db.delete(row)
         db.execute(
-            delete(KBChunk).where(
-                KBChunk.article_id == article_id, KBChunk.id.notin_(keep_chunk_ids or {0})
-            )
+            delete(KBChunk).where(KBChunk.article_id == article_id, KBChunk.id.notin_(keep_chunk_ids or {0}))
         )
 
 

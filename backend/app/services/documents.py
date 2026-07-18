@@ -20,8 +20,14 @@ CHUNK_TARGET_CHARS = 900
 CHUNK_OVERLAP_CHARS = 150
 MIN_CHUNK_CHARS = 80
 
-SUPPORTED_EXTENSIONS = {".pdf": "pdf", ".docx": "docx", ".md": "md", ".markdown": "md",
-                        ".txt": "txt", ".text": "txt"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".md": "md",
+    ".markdown": "md",
+    ".txt": "txt",
+    ".text": "txt",
+}
 
 
 class UnsupportedDocument(Exception):
@@ -69,9 +75,9 @@ def _extract_docx(data: bytes) -> tuple[str, dict]:
 
 
 def _strip_markdown(text: str) -> str:
-    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)      # code fences
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)             # images
-    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)          # links → label
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)  # code fences
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)  # images
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)  # links → label
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"[*_`>]", "", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -107,8 +113,7 @@ def extract(filename: str, data: bytes) -> tuple[str, str, dict]:
     return source_type, text, metadata
 
 
-def chunk_text(text: str, target: int = CHUNK_TARGET_CHARS,
-               overlap: int = CHUNK_OVERLAP_CHARS) -> list[str]:
+def chunk_text(text: str, target: int = CHUNK_TARGET_CHARS, overlap: int = CHUNK_OVERLAP_CHARS) -> list[str]:
     """Split text into overlapping, paragraph-aligned passages."""
     text = (text or "").strip()
     if not text:

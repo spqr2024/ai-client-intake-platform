@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, CRMProvider, CRMSync, NotificationOut, UserOut } from "@/lib/api";
+import { PageHeader, Toast } from "@/components/ui";
 
 type FieldDef = {
   key: string;
@@ -156,7 +157,10 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-6 text-2xl font-bold">Settings</h1>
+      <PageHeader
+        title="Settings"
+        description="Workspace configuration — changes apply immediately, no redeploy required."
+      />
 
       <div className="mb-6 flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
         {[...TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
@@ -177,10 +181,8 @@ export default function SettingsPage() {
       </div>
 
       {message && (
-        <div className={`mb-4 rounded-lg px-3 py-2 text-sm ${
-          message.kind === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-        }`}>
-          {message.text}
+        <div className="mb-4">
+          <Toast kind={message.kind} message={message.text} onDismiss={() => setMessage(null)} />
         </div>
       )}
 

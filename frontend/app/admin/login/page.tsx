@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, setTokens } from "@/lib/api";
+import { focusRing, Toast } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -56,11 +57,15 @@ export default function LoginPage() {
           required
           className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
         />
-        {error && <div className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        {error && (
+          <div className="mb-4">
+            <Toast kind="err" message={error} />
+          </div>
+        )}
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+          className={`w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`}
         >
           {loading ? "Signing in…" : "Sign in"}
         </button>

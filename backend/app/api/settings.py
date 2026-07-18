@@ -24,8 +24,16 @@ def update_settings_values(
 ):
     changed = sorted(key for key in body.values if runtime_settings.is_editable(key))
     result = runtime_settings.set_many(db, body.values, admin.workspace_id)
-    audit.record(db, admin.workspace_id, admin.email, "settings_updated", "settings", "",
-                 detail=f"keys: {', '.join(changed)}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "settings_updated",
+        "settings",
+        "",
+        detail=f"keys: {', '.join(changed)}",
+        request=request,
+    )
     return SettingsOut(values=result)
 
 

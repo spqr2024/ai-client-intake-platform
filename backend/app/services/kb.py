@@ -36,18 +36,103 @@ logger = logging.getLogger(__name__)
 _TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
 
 QUESTION_WORDS = {
-    "what", "how", "where", "when", "why", "who", "which", "can", "do", "does", "is", "are",
-    "що", "як", "де", "коли", "чому", "хто", "який", "яка", "чи", "скільки",
+    "what",
+    "how",
+    "where",
+    "when",
+    "why",
+    "who",
+    "which",
+    "can",
+    "do",
+    "does",
+    "is",
+    "are",
+    "що",
+    "як",
+    "де",
+    "коли",
+    "чому",
+    "хто",
+    "який",
+    "яка",
+    "чи",
+    "скільки",
 }
 
 STOPWORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "do", "does", "did", "your", "you",
-    "my", "our", "we", "it", "its", "of", "to", "in", "on", "for", "and", "or", "with",
-    "how", "what", "where", "when", "why", "who", "which", "can", "could", "would",
-    "i", "me", "at", "by", "be", "have", "has",
-    "як", "що", "де", "коли", "чому", "хто", "який", "яка", "яке", "які", "чи",
-    "ви", "ми", "ваш", "ваша", "ваші", "мій", "моя", "мої", "на", "в", "у", "з", "і",
-    "та", "або", "до", "для", "це", "є",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "do",
+    "does",
+    "did",
+    "your",
+    "you",
+    "my",
+    "our",
+    "we",
+    "it",
+    "its",
+    "of",
+    "to",
+    "in",
+    "on",
+    "for",
+    "and",
+    "or",
+    "with",
+    "how",
+    "what",
+    "where",
+    "when",
+    "why",
+    "who",
+    "which",
+    "can",
+    "could",
+    "would",
+    "i",
+    "me",
+    "at",
+    "by",
+    "be",
+    "have",
+    "has",
+    "як",
+    "що",
+    "де",
+    "коли",
+    "чому",
+    "хто",
+    "який",
+    "яка",
+    "яке",
+    "які",
+    "чи",
+    "ви",
+    "ми",
+    "ваш",
+    "ваша",
+    "ваші",
+    "мій",
+    "моя",
+    "мої",
+    "на",
+    "в",
+    "у",
+    "з",
+    "і",
+    "та",
+    "або",
+    "до",
+    "для",
+    "це",
+    "є",
 }
 
 SEMANTIC_WEIGHT = 0.7
@@ -101,8 +186,7 @@ def rebuild_chunks(db: Session, article: KnowledgeBaseArticle) -> list[KBChunk]:
 
     texts = documents.chunk_text(f"{article.title}\n\n{article.content}")
     chunks = [
-        KBChunk(workspace_id=article.workspace_id, article_id=article.id,
-                position=position, text=text)
+        KBChunk(workspace_id=article.workspace_id, article_id=article.id, position=position, text=text)
         for position, text in enumerate(texts)
     ]
     for chunk in chunks:
@@ -132,15 +216,16 @@ async def index_article(db: Session, article: KnowledgeBaseArticle) -> None:
             if chunks:
                 vectors = await provider.embed([c.text for c in chunks])
                 for chunk, vector in zip(chunks, vectors, strict=True):
-                    store.upsert(db, article.workspace_id, article.id, chunk.id,
-                                 vector, provider.name, provider.model)
+                    store.upsert(
+                        db, article.workspace_id, article.id, chunk.id, vector, provider.name, provider.model
+                    )
         article.index_status = "indexed"
         article.indexed_at = utcnow()
         db.commit()
-        metrics.counter("kb_index_total", labels={"result": "success"},
-                        help_text="KB article indexing operations")
-        logger.info("Indexed KB article", extra={"article_id": article.id,
-                                                 "chunks": article.chunk_count})
+        metrics.counter(
+            "kb_index_total", labels={"result": "success"}, help_text="KB article indexing operations"
+        )
+        logger.info("Indexed KB article", extra={"article_id": article.id, "chunks": article.chunk_count})
     except embedding_service.EmbeddingError as exc:
         article.index_status = "failed"
         article.index_error = str(exc)[:1000]
@@ -160,20 +245,6 @@ async def reindex_workspace(db: Session, workspace_id: int) -> int:
     ).all()
     for article in articles:
         await index_article(db, article)
-    return len(articles)
-
-
-def mark_stale(db: Session, workspace_id: int) -> int:
-    """Flag every indexed article as stale (used after a provider switch)."""
-    articles = db.scalars(
-        select(KnowledgeBaseArticle).where(
-            KnowledgeBaseArticle.workspace_id == workspace_id,
-            KnowledgeBaseArticle.index_status == "indexed",
-        )
-    ).all()
-    for article in articles:
-        article.index_status = "stale"
-    db.commit()
     return len(articles)
 
 
@@ -201,8 +272,12 @@ async def search(
         with Timer("kb_search_seconds"):
             [query_vector] = await provider.embed([query])
             hits = vectorstore.get_store().search(
-                db, workspace_id, query_vector, limit=50,
-                provider=provider.name, model=provider.model,
+                db,
+                workspace_id,
+                query_vector,
+                limit=50,
+                provider=provider.name,
+                model=provider.model,
             )
         for article_id, _chunk_id, score in hits:
             if score > semantic.get(article_id, 0.0):
@@ -213,11 +288,7 @@ async def search(
     scored: list[tuple[KnowledgeBaseArticle, float]] = []
     for article in articles:
         lex = lexical_score(query, article.title, article.content)
-        score = (
-            SEMANTIC_WEIGHT * semantic.get(article.id, 0.0) + LEXICAL_WEIGHT * lex
-            if semantic
-            else lex
-        )
+        score = SEMANTIC_WEIGHT * semantic.get(article.id, 0.0) + LEXICAL_WEIGHT * lex if semantic else lex
         if score >= min_score:
             scored.append((article, round(score, 3)))
     scored.sort(key=lambda item: item[1], reverse=True)
@@ -227,9 +298,14 @@ async def search(
     return results
 
 
-def _log_search(db: Session, workspace_id: int, query: str,
-                results: list[tuple[KnowledgeBaseArticle, float]], source: str,
-                by_id: dict[int, KnowledgeBaseArticle]) -> None:
+def _log_search(
+    db: Session,
+    workspace_id: int,
+    query: str,
+    results: list[tuple[KnowledgeBaseArticle, float]],
+    source: str,
+    by_id: dict[int, KnowledgeBaseArticle],
+) -> None:
     top = results[0] if results else None
     db.add(
         KBSearchLog(
@@ -246,20 +322,24 @@ def _log_search(db: Session, workspace_id: int, query: str,
         if article is not None:
             article.hit_count += 1
     db.commit()
-    metrics.counter("kb_search_total", labels={"result": "hit" if top else "miss"},
-                    help_text="Knowledge-base searches")
+    metrics.counter(
+        "kb_search_total", labels={"result": "hit" if top else "miss"}, help_text="Knowledge-base searches"
+    )
 
 
 def statistics(db: Session, workspace_id: int) -> dict:
     """Retrieval analytics for the admin KB dashboard."""
-    total_searches = db.scalar(
-        select(func.count(KBSearchLog.id)).where(KBSearchLog.workspace_id == workspace_id)
-    ) or 0
-    hits = db.scalar(
-        select(func.count(KBSearchLog.id)).where(
-            KBSearchLog.workspace_id == workspace_id, KBSearchLog.hit == 1
+    total_searches = (
+        db.scalar(select(func.count(KBSearchLog.id)).where(KBSearchLog.workspace_id == workspace_id)) or 0
+    )
+    hits = (
+        db.scalar(
+            select(func.count(KBSearchLog.id)).where(
+                KBSearchLog.workspace_id == workspace_id, KBSearchLog.hit == 1
+            )
         )
-    ) or 0
+        or 0
+    )
     by_status = dict(
         db.execute(
             select(KnowledgeBaseArticle.index_status, func.count(KnowledgeBaseArticle.id))
@@ -269,8 +349,7 @@ def statistics(db: Session, workspace_id: int) -> dict:
     )
     top_articles = db.execute(
         select(KnowledgeBaseArticle.id, KnowledgeBaseArticle.title, KnowledgeBaseArticle.hit_count)
-        .where(KnowledgeBaseArticle.workspace_id == workspace_id,
-               KnowledgeBaseArticle.hit_count > 0)
+        .where(KnowledgeBaseArticle.workspace_id == workspace_id, KnowledgeBaseArticle.hit_count > 0)
         .order_by(KnowledgeBaseArticle.hit_count.desc())
         .limit(5)
     ).all()
@@ -287,8 +366,6 @@ def statistics(db: Session, workspace_id: int) -> dict:
         "hit_rate": round(hits / total_searches, 3) if total_searches else 0.0,
         "articles_by_status": by_status,
         "indexed_chunks": vectorstore.get_store().count(db, workspace_id),
-        "top_articles": [
-            {"id": row[0], "title": row[1], "hits": row[2]} for row in top_articles
-        ],
+        "top_articles": [{"id": row[0], "title": row[1], "hits": row[2]} for row in top_articles],
         "unanswered_queries": [{"query": row[0], "count": row[1]} for row in unanswered],
     }

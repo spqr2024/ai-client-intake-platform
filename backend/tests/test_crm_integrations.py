@@ -22,13 +22,13 @@ class RecordingProvider(crm.CRMProvider):
         self.fail_times = 0
 
     async def export_lead(self, lead, config):
-        self.calls.append({"lead_id": lead.id, "api_key": config.api_key,
-                           "option": config.option("workspace_key")})
+        self.calls.append(
+            {"lead_id": lead.id, "api_key": config.api_key, "option": config.option("workspace_key")}
+        )
         if self.fail_times > 0:
             self.fail_times -= 1
             raise crm.CRMError("temporary upstream failure")
-        return crm.CRMResult(external_id=f"ext-{lead.id}",
-                             external_url=f"https://crm.example/{lead.id}")
+        return crm.CRMResult(external_id=f"ext-{lead.id}", external_url=f"https://crm.example/{lead.id}")
 
 
 @pytest.fixture()
@@ -52,10 +52,20 @@ def test_providers_endpoint(client, auth_headers):
 
 
 def test_lead_payload_is_provider_independent():
-    lead = Lead(id=7, project_name="Store build", client_name="Ada Lovelace",
-                client_email="ada@example.com", service="Online store", budget=5000,
-                timeline="ASAP", status="Qualified", priority="High", score=88,
-                tags=["vip"], summary="Wants a store")
+    lead = Lead(
+        id=7,
+        project_name="Store build",
+        client_name="Ada Lovelace",
+        client_email="ada@example.com",
+        service="Online store",
+        budget=5000,
+        timeline="ASAP",
+        status="Qualified",
+        priority="High",
+        score=88,
+        tags=["vip"],
+        summary="Wants a store",
+    )
     payload = crm.CRMProvider.lead_payload(lead)
     assert payload["first_name"] == "Ada"
     assert payload["last_name"] == "Lovelace"
@@ -75,10 +85,18 @@ def test_export_is_skipped_without_configuration(client, auth_headers, db_sessio
 
 
 def test_export_queues_and_records_sync(client, auth_headers, db_session, recording_provider):
-    client.put("/api/settings", headers=auth_headers, json={"values": {
-        "crm_provider": "recording", "crm_api_key": "secret-key",
-        "crm_option_workspace_key": "ws-1", "crm_export_on": "qualified",
-    }})
+    client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={
+            "values": {
+                "crm_provider": "recording",
+                "crm_api_key": "secret-key",
+                "crm_option_workspace_key": "ws-1",
+                "crm_export_on": "qualified",
+            }
+        },
+    )
 
     lead = Lead(workspace_id=1, project_name="Export me", status="Qualified", score=90)
     db_session.add(lead)
@@ -100,15 +118,23 @@ def test_export_queues_and_records_sync(client, auth_headers, db_session, record
     assert recording_provider.calls[0]["option"] == "ws-1"
 
     # Reset so later tests don't export.
-    client.put("/api/settings", headers=auth_headers,
-               json={"values": {"crm_provider": "", "crm_export_on": "off"}})
+    client.put(
+        "/api/settings", headers=auth_headers, json={"values": {"crm_provider": "", "crm_export_on": "off"}}
+    )
 
 
-def test_failed_export_is_retried_then_marked_failed(client, auth_headers, db_session,
-                                                     recording_provider):
-    client.put("/api/settings", headers=auth_headers, json={"values": {
-        "crm_provider": "recording", "crm_api_key": "k", "crm_export_on": "qualified",
-    }})
+def test_failed_export_is_retried_then_marked_failed(client, auth_headers, db_session, recording_provider):
+    client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={
+            "values": {
+                "crm_provider": "recording",
+                "crm_api_key": "k",
+                "crm_export_on": "qualified",
+            }
+        },
+    )
     recording_provider.fail_times = 99  # always fail
 
     lead = Lead(workspace_id=1, project_name="Fails to export", status="Qualified")
@@ -130,16 +156,18 @@ def test_failed_export_is_retried_then_marked_failed(client, auth_headers, db_se
     assert entry["attempts"] >= 1
     assert entry["error"]
 
-    client.put("/api/settings", headers=auth_headers,
-               json={"values": {"crm_provider": "", "crm_export_on": "off"}})
+    client.put(
+        "/api/settings", headers=auth_headers, json={"values": {"crm_provider": "", "crm_export_on": "off"}}
+    )
 
 
 def test_export_requires_admin(client, auth_headers, db_session):
-    client.post("/api/users", headers=auth_headers,
-                json={"name": "Cm", "email": "cm@example.org", "password": "secret123",
-                      "role": "manager"})
-    login = client.post("/api/auth/login",
-                        json={"email": "cm@example.org", "password": "secret123"})
+    client.post(
+        "/api/users",
+        headers=auth_headers,
+        json={"name": "Cm", "email": "cm@example.org", "password": "secret123", "role": "manager"},
+    )
+    login = client.post("/api/auth/login", json={"email": "cm@example.org", "password": "secret123"})
     manager_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     lead = Lead(workspace_id=1, project_name="RBAC check", status="Qualified")
@@ -147,7 +175,6 @@ def test_export_requires_admin(client, auth_headers, db_session):
     db_session.commit()
     db_session.refresh(lead)
 
-    assert client.post(f"/api/crm/leads/{lead.id}/export",
-                       headers=manager_headers).status_code == 403
+    assert client.post(f"/api/crm/leads/{lead.id}/export", headers=manager_headers).status_code == 403
     # Managers may still read the sync log.
     assert client.get("/api/crm/syncs", headers=manager_headers).status_code == 200

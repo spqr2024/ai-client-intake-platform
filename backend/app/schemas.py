@@ -139,17 +139,6 @@ class NoteCreate(BaseModel):
     kind: str = Field(default="note", pattern="^(note|comment)$")
 
 
-class LeadPage(BaseModel):
-    """Paginated envelope. Reserved for a future `/api/leads/page` endpoint;
-    the existing list endpoint returns a bare array plus `X-Total-Count` to
-    stay backwards compatible."""
-
-    items: list[LeadListItem]
-    total: int
-    limit: int
-    offset: int
-
-
 class ReplayEvent(BaseModel):
     at: datetime
     type: str  # message | activity | attachment

@@ -38,9 +38,7 @@ def test_full_chat_creates_qualified_lead(client, auth_headers):
 
 
 def test_prefilled_contact_skips_questions(client):
-    resp = client.post(
-        "/api/chat/start", json={"client_name": "Bob", "email": "bob@x.co"}
-    )
+    resp = client.post("/api/chat/start", json={"client_name": "Bob", "email": "bob@x.co"})
     body = resp.json()
     # Name question skipped, goes straight to service selection.
     assert "service" in body["bot_message"].lower()
@@ -78,9 +76,7 @@ def test_human_handoff_ends_chat(client, auth_headers):
 def test_sse_stream_endpoint(client):
     resp = client.post("/api/chat/start", json={"client_name": "Dana"})
     conversation_id = resp.json()["conversation_id"]
-    with client.stream(
-        "GET", f"/api/chat/{conversation_id}/stream", params={"text": "Mobile app"}
-    ) as stream:
+    with client.stream("GET", f"/api/chat/{conversation_id}/stream", params={"text": "Mobile app"}) as stream:
         assert stream.status_code == 200
         content = "".join(chunk for chunk in stream.iter_text())
     assert "event: delta" in content

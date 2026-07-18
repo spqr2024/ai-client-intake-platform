@@ -48,9 +48,9 @@ DEFAULTS: dict[str, str] = {
     "crm_api_key": "",
     "crm_export_on": "qualified",  # qualified | all | off
     "crm_option_company_domain": "",  # Pipedrive
-    "crm_option_database_id": "",     # Notion
-    "crm_option_instance_url": "",    # Salesforce
-    "crm_option_url": "",             # Generic webhook
+    "crm_option_database_id": "",  # Notion
+    "crm_option_instance_url": "",  # Salesforce
+    "crm_option_url": "",  # Generic webhook
     # ── White label / branding ────────────────────────────────────────
     "brand_company_name": "IntakeAI",
     "brand_bot_name": "AI Intake Assistant",
@@ -72,6 +72,7 @@ DYNAMIC_KEY_PREFIXES = ("crm_option_",)
 def is_editable(key: str) -> bool:
     return key in EDITABLE_KEYS or key.startswith(DYNAMIC_KEY_PREFIXES)
 
+
 BRANDING_KEYS = (
     "brand_company_name",
     "brand_bot_name",
@@ -90,9 +91,7 @@ def get_all(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict[str, 
     }
     values = {key: stored.get(key, default) for key, default in DEFAULTS.items()}
     # Surface dynamically-named keys (e.g. a new CRM adapter's options).
-    values.update(
-        {key: value for key, value in stored.items() if key.startswith(DYNAMIC_KEY_PREFIXES)}
-    )
+    values.update({key: value for key, value in stored.items() if key.startswith(DYNAMIC_KEY_PREFIXES)})
     return values
 
 
@@ -105,9 +104,7 @@ def get(db: Session, key: str, workspace_id: int = DEFAULT_WORKSPACE_ID) -> str:
     return DEFAULTS.get(key, "")
 
 
-def set_many(
-    db: Session, values: dict[str, str], workspace_id: int = DEFAULT_WORKSPACE_ID
-) -> dict[str, str]:
+def set_many(db: Session, values: dict[str, str], workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict[str, str]:
     for key, value in values.items():
         if not is_editable(key):
             continue

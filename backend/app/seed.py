@@ -167,8 +167,14 @@ def seed() -> None:
         bootstrap(db)
 
         if db.scalars(select(User).where(User.email == "manager@example.com")).first() is None:
-            db.add(User(name="John Manager", email="manager@example.com",
-                        password_hash=hash_password("manager123"), role="manager"))
+            db.add(
+                User(
+                    name="John Manager",
+                    email="manager@example.com",
+                    password_hash=hash_password("manager123"),
+                    role="manager",
+                )
+            )
 
         if db.scalars(select(KnowledgeBaseArticle)).first() is None:
             for article in KB_ARTICLES:
@@ -211,12 +217,27 @@ def seed() -> None:
                 db.add(conversation)
                 db.flush()
                 for offset, (sender, text) in enumerate(item["transcript"]):
-                    db.add(Message(conversation_id=conversation.id, sender=sender, text=text,
-                                   created_at=created + timedelta(seconds=30 * offset)))
-                db.add(ActivityLog(lead_id=lead.id, actor="system", action="created",
-                                   detail="Lead created from chat (demo seed)", created_at=created))
+                    db.add(
+                        Message(
+                            conversation_id=conversation.id,
+                            sender=sender,
+                            text=text,
+                            created_at=created + timedelta(seconds=30 * offset),
+                        )
+                    )
+                db.add(
+                    ActivityLog(
+                        lead_id=lead.id,
+                        actor="system",
+                        action="created",
+                        detail="Lead created from chat (demo seed)",
+                        created_at=created,
+                    )
+                )
         db.commit()
-        print("Seed complete. Admin: admin@example.com / admin12345 — Manager: manager@example.com / manager123")
+        print(
+            "Seed complete. Admin: admin@example.com / admin12345 — Manager: manager@example.com / manager123"
+        )
     finally:
         db.close()
 

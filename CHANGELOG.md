@@ -3,6 +3,35 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [2.1.1] — 2026-07-18
+
+Independent production audit. No features removed; all API contracts unchanged.
+
+### Fixed
+- **Pagination disabled "Previous" on non-page-aligned offsets** — found by a new frontend test; the control now guards on the offset itself rather than a derived page number.
+- **`ON DELETE` rules were absent and SQLite silently ignored foreign keys** — child rows could outlive their parent when deleted via raw SQL. Added explicit `CASCADE`/`SET NULL` and enabled the SQLite `foreign_keys` pragma so the declared integrity is actually enforced.
+
+### Security
+- **Docker build context excluded nothing** (~560 MB of `.venv`/`node_modules`, and a local `.env` would have been copied into image layers). Added `.dockerignore`.
+- **Containers ran as root.** Both images now create and run as an unprivileged UID; CI asserts it.
+- **No Content-Security-Policy.** Added CSP plus `Permissions-Policy`/`Referrer-Policy` on the web tier, with `connect-src` pinned to the API origin.
+- Compose: database and Redis ports no longer published by default, `no-new-privileges`, restart policies, healthcheck-gated startup ordering.
+- CI now runs `pip-audit` and `npm audit`; the one known moderate advisory (transitive PostCSS inside Next's build tooling, whose published fix is a downgrade to Next 9) is documented rather than silently accepted.
+
+### Removed
+- Dead code: `LeadPage` schema, `kb.mark_stale`, `cache.reset_cache_for_tests`.
+
+### Added
+- **Frontend test suite** (Vitest + Testing Library, 24 tests) covering the silent token-refresh/replay flow and the accessibility contract of the shared primitives — previously zero frontend tests.
+- **Developer experience**: `Makefile` task runner, `ruff format`, pre-commit hooks, `.editorconfig`, `.gitattributes`.
+- **CI**: format check, coverage gate (80% floor, currently 84%), type check, `--max-warnings=0` lint, Docker image builds with non-root assertion, compose validation, and an integration job that boots demo mode, drives a chat to lead creation and proves migrations are idempotent across repeated runs.
+- **SEO**: metadata/OpenGraph, `robots.txt` (disallowing `/admin`) and `sitemap.xml`.
+- `docs/DISASTER_RECOVERY.md` (RPO/RTO, restore procedures, verification schedule); README gains Tech Stack, Installation, Demo Mode and FAQ sections.
+
+### Changed
+- All eight admin screens now use the shared loading/empty/error primitives — five were still hand-rolling that markup with inconsistent wording and no ARIA roles.
+- Next.js `output: "standalone"` shrinks the production image to only the modules actually imported.
+
 ## [2.1.0] — 2026-07-18
 
 Production-readiness audit. No features were removed; all existing API

@@ -14,9 +14,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return db.scalars(
-        select(User).where(User.workspace_id == user.workspace_id).order_by(User.id)
-    ).all()
+    return db.scalars(select(User).where(User.workspace_id == user.workspace_id).order_by(User.id)).all()
 
 
 @router.post("", response_model=UserOut, status_code=201)
@@ -30,14 +28,25 @@ def create_user(
     if db.scalars(select(User).where(User.email == email)).first():
         raise HTTPException(status_code=409, detail="Email already registered")
     user = User(
-        workspace_id=admin.workspace_id, name=body.name, email=email,
-        password_hash=hash_password(body.password), role=body.role,
+        workspace_id=admin.workspace_id,
+        name=body.name,
+        email=email,
+        password_hash=hash_password(body.password),
+        role=body.role,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    audit.record(db, admin.workspace_id, admin.email, "user_created", "user", user.id,
-                 detail=f"{user.email} ({user.role})", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "user_created",
+        "user",
+        user.id,
+        detail=f"{user.email} ({user.role})",
+        request=request,
+    )
     return user
 
 
@@ -59,8 +68,16 @@ def change_role(
     db.commit()
     db.refresh(user)
     revoke_all_user_tokens(db, user.id)  # force re-login with the new role
-    audit.record(db, admin.workspace_id, admin.email, "role_change", "user", user.id,
-                 detail=f"{user.email}: {old_role} → {user.role}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "role_change",
+        "user",
+        user.id,
+        detail=f"{user.email}: {old_role} → {user.role}",
+        request=request,
+    )
     return user
 
 
@@ -80,5 +97,6 @@ def delete_user(
     email = user.email
     db.delete(user)
     db.commit()
-    audit.record(db, admin.workspace_id, admin.email, "user_deleted", "user", user_id,
-                 detail=email, request=request)
+    audit.record(
+        db, admin.workspace_id, admin.email, "user_deleted", "user", user_id, detail=email, request=request
+    )

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AIAnalytics, AnalyticsSummary, api } from "@/lib/api";
+import { ErrorState, focusRing, LoadingState, PageHeader } from "@/components/ui";
 
 // Status hues validated for CVD safety (dataviz six-checks, light surface).
 // Closed/Incomplete intentionally render neutral gray: inactive states,
@@ -23,15 +24,22 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setError("");
     api<AnalyticsSummary>(`/api/analytics/summary?days=${days}`, {}, true)
       .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
-    api<AIAnalytics>("/api/analytics/ai", {}, true).then(setAi).catch(() => {});
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load analytics"));
+    api<AIAnalytics>("/api/analytics/ai", {}, true)
+      .then(setAi)
+      .catch(() => {});
   }, [days]);
 
-  if (error) return <div className="rounded-lg bg-rose-50 p-4 text-rose-700">{error}</div>;
-  if (!data) return <div className="text-slate-400">Loading…</div>;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!data) return <LoadingState label="Loading analytics" rows={6} />;
 
   const tiles = [
     { label: "Conversations", value: data.total_conversations.toLocaleString() },
@@ -44,22 +52,29 @@ export default function AnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Analytics</h1>
-        <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1 text-xs">
-          {[7, 30, 90].map((d) => (
-            <button
-              key={d}
-              onClick={() => setDays(d)}
-              className={`rounded-md px-3 py-1.5 font-medium transition ${
-                days === d ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Analytics"
+        actions={
+          <div
+            role="group"
+            aria-label="Time range"
+            className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1 text-xs"
+          >
+            {[7, 30, 90].map((d) => (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                aria-pressed={days === d}
+                className={`rounded-md px-3 py-1.5 font-medium transition ${focusRing} ${
+                  days === d ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((tile) => (

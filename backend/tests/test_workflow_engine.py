@@ -25,7 +25,7 @@ def test_full_happy_path():
 
     answers = [
         "Alice",
-        "I need an online store",   # branches to store_platform
+        "I need an online store",  # branches to store_platform
         "Shopify",
         "Sell handmade jewelry across Europe with 200 products",
         "$5000",

@@ -52,7 +52,7 @@ def _get_redis():
 
         _redis = aioredis.Redis.from_url(url, socket_timeout=3, decode_responses=True)
         return _redis
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Redis queue unavailable (%s); using in-process queue", exc)
         return None
 
@@ -82,7 +82,7 @@ async def enqueue(kind: str, payload: dict, delay_seconds: float = 0) -> None:
         try:
             await redis.lpush(QUEUE_KEY, json.dumps(task))
             return
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Redis enqueue failed (%s); using in-process queue", exc)
     await _get_memory_queue().put(task)
 
@@ -94,7 +94,7 @@ async def _pop() -> dict | None:
             item = await redis.brpop(QUEUE_KEY, timeout=1)
             if item:
                 return json.loads(item[1])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Redis dequeue failed (%s)", exc)
             await asyncio.sleep(1)
         # Also drain the in-process queue in case enqueue fell back mid-flight.
@@ -114,27 +114,31 @@ async def _process(task: dict) -> None:
     try:
         with Timer("task_duration_seconds", {"kind": kind}):
             await handler(task.get("payload", {}))
-        metrics.counter("tasks_processed_total", labels={"kind": kind, "result": "success"},
-                        help_text="Background tasks processed")
-    except Exception as exc:  # noqa: BLE001 — retries are the point
+        metrics.counter(
+            "tasks_processed_total",
+            labels={"kind": kind, "result": "success"},
+            help_text="Background tasks processed",
+        )
+    except Exception as exc:
         if attempts >= MAX_ATTEMPTS:
             logger.error("Task %s dead-lettered after %s attempts: %s", kind, attempts, exc)
-            metrics.counter("tasks_processed_total",
-                            labels={"kind": kind, "result": "dead_letter"})
+            metrics.counter("tasks_processed_total", labels={"kind": kind, "result": "dead_letter"})
             report_error(exc, task_kind=kind, attempts=attempts)
             return
         metrics.counter("tasks_processed_total", labels={"kind": kind, "result": "retry"})
         delay = BACKOFF_BASE_SECONDS * (2 ** (attempts - 1))
-        logger.warning("Task %s failed (attempt %s/%s), retrying in %.0fs: %s",
-                       kind, attempts, MAX_ATTEMPTS, delay, exc)
+        logger.warning(
+            "Task %s failed (attempt %s/%s), retrying in %.0fs: %s", kind, attempts, MAX_ATTEMPTS, delay, exc
+        )
         payload = dict(task.get("payload", {}))
         payload["_attempts"] = attempts
         await enqueue(kind, payload, delay_seconds=delay)
 
 
 async def worker_loop() -> None:
-    logger.info("Task queue worker started (%s backend)",
-                "redis" if _get_redis() is not None else "in-process")
+    logger.info(
+        "Task queue worker started (%s backend)", "redis" if _get_redis() is not None else "in-process"
+    )
     while True:
         try:
             task = await _pop()
@@ -144,7 +148,7 @@ async def worker_loop() -> None:
             await _process(task)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Queue worker iteration failed")
             await asyncio.sleep(1)
 

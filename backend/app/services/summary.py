@@ -63,7 +63,12 @@ def rule_based_summary(answers: dict, lang: str = "en") -> str:
         f"- **{labels['timeline']}**: {answers.get('timeline') or '—'}",
         f"- **{labels['goals']}**: {answers.get('goals') or '—'}",
     ]
-    if answers.get("extra_notes") and str(answers["extra_notes"]).lower() not in ("no", "ні", "no, that's all", "ні, це все"):
+    if answers.get("extra_notes") and str(answers["extra_notes"]).lower() not in (
+        "no",
+        "ні",
+        "no, that's all",
+        "ні, це все",
+    ):
         lines.append(f"- **{labels['notes']}**: {answers['extra_notes']}")
     return "\n".join(lines)
 

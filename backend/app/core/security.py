@@ -23,9 +23,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, stored: str) -> bool:
     try:
         _, iterations, salt_hex, digest_hex = stored.split("$")
-        digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
-        )
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations))
         return hmac.compare_digest(digest.hex(), digest_hex)
     except (ValueError, TypeError):
         return False
@@ -70,9 +68,7 @@ def issue_refresh_token(db: Session, user_id: int) -> str:
 def rotate_refresh_token(db: Session, token: str) -> tuple[int, str] | None:
     """Validate + revoke the presented token, issue a replacement.
     Returns (user_id, new_token) or None if invalid/expired/revoked."""
-    row = db.scalars(
-        select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(token))
-    ).first()
+    row = db.scalars(select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(token))).first()
     if row is None or row.revoked:
         return None
     expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
@@ -84,9 +80,7 @@ def rotate_refresh_token(db: Session, token: str) -> tuple[int, str] | None:
 
 
 def revoke_refresh_token(db: Session, token: str) -> bool:
-    row = db.scalars(
-        select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(token))
-    ).first()
+    row = db.scalars(select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(token))).first()
     if row is None:
         return False
     row.revoked = 1

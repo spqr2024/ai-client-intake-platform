@@ -30,7 +30,7 @@ def _check_database(db: Session) -> dict:
     try:
         db.execute(text("SELECT 1"))
         return {"ok": True, "latency_ms": round((time.perf_counter() - started) * 1000, 2)}
-    except Exception as exc:  # noqa: BLE001 — probe must never raise
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
 
@@ -48,7 +48,7 @@ def _check_cache() -> dict:
             "configured": backend,
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
         }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"ok": False, "configured": backend, "error": str(exc)[:200]}
 
 
@@ -90,8 +90,9 @@ def readiness(response: Response, db: Session = Depends(get_db)):
 def prometheus_metrics():
     """Prometheus text exposition. Scrape directly; Grafana dashboards can be
     built on top without the application depending on either system."""
-    metrics.gauge("app_uptime_seconds", round(time.time() - _STARTED_AT, 1),
-                  help_text="Seconds since process start")
+    metrics.gauge(
+        "app_uptime_seconds", round(time.time() - _STARTED_AT, 1), help_text="Seconds since process start"
+    )
     return Response(content=metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 

@@ -1,37 +1,46 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: intake
-      POSTGRES_PASSWORD: intake
-      POSTGRES_DB: intake
+      POSTGRES_USER: ${POSTGRES_USER:-intake}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intake}
+      POSTGRES_DB: ${POSTGRES_DB:-intake}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U intake"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-intake}"]
       interval: 5s
       timeout: 3s
       retries: 10
-    ports:
-      - "5432:5432"
+    # Not published by default: the database is only reachable from the compose
+    # network. Uncomment for local inspection with psql/TablePlus.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
-    ports:
-      - "6379:6379"
+    # ports:
+    #   - "127.0.0.1:6379:6379"
 
   backend:
     build: ./backend
+    restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://intake:intake@db:5432/intake
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-intake}:${POSTGRES_PASSWORD:-intake}@db:5432/${POSTGRES_DB:-intake}
       REDIS_URL: redis://redis:6379/0
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
     depends_on:
       db:
         condition: service_healthy
@@ -41,17 +50,24 @@ services:
       - "8000:8000"
     volumes:
       - uploads:/app/uploads
+    security_opt:
+      - no-new-privileges:true
 
   frontend:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3000:3000"
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pgdata:
+  redisdata:
   uploads:

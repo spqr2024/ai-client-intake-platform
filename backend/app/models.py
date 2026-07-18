@@ -58,7 +58,7 @@ class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked: Mapped[int] = mapped_column(Integer, default=0)
@@ -95,7 +95,9 @@ class Lead(Base):
     follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     score: Mapped[int] = mapped_column(Integer, default=0)
     language: Mapped[str] = mapped_column(String(8), default="en")
-    assigned_to_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    assigned_to_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -138,7 +140,9 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
     sender: Mapped[str] = mapped_column(String(10))  # user | bot
     text: Mapped[str] = mapped_column(Text)
     # Replay metadata: {node, event, kb_article_id, validation, …}
@@ -152,7 +156,9 @@ class Attachment(Base):
     __tablename__ = "attachments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
     filename: Mapped[str] = mapped_column(String(255))
     stored_name: Mapped[str] = mapped_column(String(255))
     size: Mapped[int] = mapped_column(Integer, default=0)
@@ -212,7 +218,8 @@ class KnowledgeBaseArticle(Base):
         back_populates="article", cascade="all, delete-orphan", order_by="KBChunk.position"
     )
     versions: Mapped[list["KBArticleVersion"]] = relationship(
-        back_populates="article", cascade="all, delete-orphan",
+        back_populates="article",
+        cascade="all, delete-orphan",
         order_by="KBArticleVersion.version.desc()",
     )
 
@@ -225,7 +232,7 @@ class KBChunk(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
-    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     text: Mapped[str] = mapped_column(Text)
 
@@ -236,12 +243,10 @@ class KBArticleVersion(Base):
     """Immutable snapshot of an article, written on every edit (rollback source)."""
 
     __tablename__ = "kb_article_versions"
-    __table_args__ = (
-        UniqueConstraint("article_id", "version", name="uq_kb_version_article_ver"),
-    )
+    __table_args__ = (UniqueConstraint("article_id", "version", name="uq_kb_version_article_ver"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)
@@ -273,7 +278,7 @@ class CRMSyncLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
-    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|synced|failed|skipped
     external_id: Mapped[str] = mapped_column(String(120), default="")
@@ -300,8 +305,10 @@ class KBEmbedding(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
-    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
-    chunk_id: Mapped[int | None] = mapped_column(ForeignKey("kb_chunks.id"), nullable=True, index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id", ondelete="CASCADE"), index=True)
+    chunk_id: Mapped[int | None] = mapped_column(
+        ForeignKey("kb_chunks.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     provider: Mapped[str] = mapped_column(String(60), default="")
     model: Mapped[str] = mapped_column(String(120), default="")
     vector: Mapped[list] = mapped_column(JSON, default=list)
@@ -347,9 +354,11 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     actor: Mapped[str] = mapped_column(String(120), default="system")
-    action: Mapped[str] = mapped_column(String(60))  # created | status_change | note | comment | email_sent | telegram ...
+    action: Mapped[str] = mapped_column(
+        String(60)
+    )  # created | status_change | note | comment | email_sent | telegram ...
     detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -365,7 +374,9 @@ class AuditLog(Base):
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
     actor: Mapped[str] = mapped_column(String(255), default="")  # email or "system"
     action: Mapped[str] = mapped_column(String(60), index=True)  # login | logout | role_change | ...
-    entity: Mapped[str] = mapped_column(String(60), default="")  # lead | user | prompt | workflow | kb | settings
+    entity: Mapped[str] = mapped_column(
+        String(60), default=""
+    )  # lead | user | prompt | workflow | kb | settings
     entity_id: Mapped[str] = mapped_column(String(60), default="")
     detail: Mapped[str] = mapped_column(Text, default="")
     ip: Mapped[str] = mapped_column(String(64), default="")
@@ -380,8 +391,12 @@ class Notification(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    channel: Mapped[str] = mapped_column(String(20), default="inapp")  # inapp | email | telegram | slack | discord
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    channel: Mapped[str] = mapped_column(
+        String(20), default="inapp"
+    )  # inapp | email | telegram | slack | discord
     event: Mapped[str] = mapped_column(String(60), default="")  # lead.created | lead.status_changed | ...
     title: Mapped[str] = mapped_column(String(255), default="")
     body: Mapped[str] = mapped_column(Text, default="")

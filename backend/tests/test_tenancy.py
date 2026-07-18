@@ -15,8 +15,11 @@ def second_workspace(client, db_session):
         db_session.flush()
         db_session.add(
             User(
-                workspace_id=workspace.id, name="Acme Admin", email="admin@acme-corp.com",
-                password_hash=hash_password("acme-secret-1"), role="admin",
+                workspace_id=workspace.id,
+                name="Acme Admin",
+                email="admin@acme-corp.com",
+                password_hash=hash_password("acme-secret-1"),
+                role="admin",
             )
         )
         db_session.add(Lead(workspace_id=workspace.id, project_name="Acme private lead"))
@@ -26,9 +29,7 @@ def second_workspace(client, db_session):
 
 @pytest.fixture()
 def acme_headers(client, second_workspace):
-    resp = client.post(
-        "/api/auth/login", json={"email": "admin@acme-corp.com", "password": "acme-secret-1"}
-    )
+    resp = client.post("/api/auth/login", json={"email": "admin@acme-corp.com", "password": "acme-secret-1"})
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
@@ -49,7 +50,8 @@ def test_cross_workspace_lead_access_denied(client, auth_headers, acme_headers, 
 
 def test_settings_are_workspace_scoped(client, auth_headers, acme_headers):
     resp = client.put(
-        "/api/settings", headers=acme_headers,
+        "/api/settings",
+        headers=acme_headers,
         json={"values": {"brand_company_name": "Acme Corp"}},
     )
     assert resp.status_code == 200
@@ -72,8 +74,7 @@ def test_chat_start_resolves_workspace_slug(client, acme_headers, second_workspa
 
 
 def test_public_branding_endpoint(client, auth_headers):
-    client.put("/api/settings", headers=auth_headers,
-               json={"values": {"brand_bot_name": "Helper Bot"}})
+    client.put("/api/settings", headers=auth_headers, json={"values": {"brand_bot_name": "Helper Bot"}})
     resp = client.get("/api/public/branding", params={"workspace": "default"})
     assert resp.status_code == 200
     assert resp.json()["bot_name"] == "Helper Bot"

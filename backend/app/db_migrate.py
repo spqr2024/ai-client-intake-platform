@@ -95,6 +95,22 @@ def migrate(engine: Engine) -> None:
                 conn.execute(text(f"DROP TABLE {table}"))
 
 
+def enforce_sqlite_foreign_keys(engine: Engine) -> None:
+    """SQLite ignores FOREIGN KEY clauses unless the pragma is enabled per
+    connection. Without this the ON DELETE rules declared on the models are
+    silently inert on the default development database."""
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _set_pragma(dbapi_connection, _record):  # pragma: no cover - driver hook
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 def post_create(engine: Engine) -> None:
     """Steps that need the new tables to exist (runs after create_all)."""
     inspector = inspect(engine)
@@ -130,7 +146,6 @@ def post_create(engine: Engine) -> None:
             if table in tables and "workspace_id" in _existing_columns(engine, table):
                 conn.execute(
                     text(
-                        f"UPDATE {table} SET workspace_id = {DEFAULT_WORKSPACE_ID} "
-                        "WHERE workspace_id IS NULL"
+                        f"UPDATE {table} SET workspace_id = {DEFAULT_WORKSPACE_ID} WHERE workspace_id IS NULL"
                     )
                 )

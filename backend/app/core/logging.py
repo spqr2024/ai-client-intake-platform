@@ -17,10 +17,29 @@ request_path_var: ContextVar[str] = ContextVar("request_path", default="")
 
 # LogRecord attributes that are never part of the structured payload.
 _RESERVED = {
-    "args", "asctime", "created", "exc_info", "exc_text", "filename", "funcName",
-    "levelname", "levelno", "lineno", "module", "msecs", "message", "msg", "name",
-    "pathname", "process", "processName", "relativeCreated", "stack_info",
-    "thread", "threadName", "taskName",
+    "args",
+    "asctime",
+    "created",
+    "exc_info",
+    "exc_text",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "module",
+    "msecs",
+    "message",
+    "msg",
+    "name",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "stack_info",
+    "thread",
+    "threadName",
+    "taskName",
 }
 
 

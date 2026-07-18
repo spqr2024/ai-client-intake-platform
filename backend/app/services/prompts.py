@@ -16,28 +16,33 @@ from app.services import runtime_settings
 
 def get_active(db: Session, workspace_id: int, name: str) -> Prompt | None:
     return db.scalars(
-        select(Prompt).where(
-            Prompt.workspace_id == workspace_id, Prompt.name == name, Prompt.is_active == 1
-        )
+        select(Prompt).where(Prompt.workspace_id == workspace_id, Prompt.name == name, Prompt.is_active == 1)
     ).first()
 
 
 def next_version(db: Session, workspace_id: int, name: str) -> int:
     current = db.scalar(
-        select(func.max(Prompt.version)).where(
-            Prompt.workspace_id == workspace_id, Prompt.name == name
-        )
+        select(func.max(Prompt.version)).where(Prompt.workspace_id == workspace_id, Prompt.name == name)
     )
     return int(current or 0) + 1
 
 
 def create_version(
-    db: Session, workspace_id: int, name: str, kind: str, content: str,
-    created_by: str, activate: bool = True,
+    db: Session,
+    workspace_id: int,
+    name: str,
+    kind: str,
+    content: str,
+    created_by: str,
+    activate: bool = True,
 ) -> Prompt:
     prompt = Prompt(
-        workspace_id=workspace_id, name=name, kind=kind, content=content,
-        version=next_version(db, workspace_id, name), created_by=created_by,
+        workspace_id=workspace_id,
+        name=name,
+        kind=kind,
+        content=content,
+        version=next_version(db, workspace_id, name),
+        created_by=created_by,
     )
     db.add(prompt)
     if activate:
@@ -70,9 +75,7 @@ def _deactivate_all(db: Session, workspace_id: int, name: str) -> None:
         row.is_active = 0
 
 
-def resolve(
-    db: Session, workspace_id: int, kind: str, workflow_prompt_name: str = ""
-) -> str:
+def resolve(db: Session, workspace_id: int, kind: str, workflow_prompt_name: str = "") -> str:
     """Effective prompt text for `kind` ("system" | "summary")."""
     if workflow_prompt_name:
         assigned = get_active(db, workspace_id, workflow_prompt_name)

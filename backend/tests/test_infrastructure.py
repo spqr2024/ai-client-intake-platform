@@ -1,6 +1,5 @@
 """Cache, queue retry, embeddings, vector store and memory."""
 
-
 from app.core import queue
 from app.core.cache import MemoryCache
 from app.services.embeddings import HashingEmbeddings
@@ -31,9 +30,9 @@ def test_queue_retries_then_dead_letters(client):
 
     async def run() -> None:
         await queue.enqueue("test.flaky", {})
-        await queue.drain_for_tests()          # attempt 1 fails, schedules retry
-        await asyncio.sleep(2.2)               # allow the delayed re-enqueue to land
-        await queue.drain_for_tests()          # attempt 2 succeeds
+        await queue.drain_for_tests()  # attempt 1 fails, schedules retry
+        await asyncio.sleep(2.2)  # allow the delayed re-enqueue to land
+        await queue.drain_for_tests()  # attempt 2 succeeds
 
     asyncio.run(run())
     assert len(attempts) == 2
@@ -58,14 +57,18 @@ def test_hashing_embeddings_deterministic_and_normalized():
 
 def test_semantic_kb_search_end_to_end(client, auth_headers):
     created = client.post(
-        "/api/kb", headers=auth_headers,
-        json={"title": "Do you offer maintenance after launch?",
-              "content": "Yes — every project includes 30 days of free support, and we "
-                         "offer ongoing maintenance retainers after that."},
+        "/api/kb",
+        headers=auth_headers,
+        json={
+            "title": "Do you offer maintenance after launch?",
+            "content": "Yes — every project includes 30 days of free support, and we "
+            "offer ongoing maintenance retainers after that.",
+        },
     ).json()
     # Index is built on create; a semantically-phrased query must find it.
-    hits = client.get("/api/kb/search", headers=auth_headers,
-                      params={"q": "is there support offered after the launch"}).json()
+    hits = client.get(
+        "/api/kb/search", headers=auth_headers, params={"q": "is there support offered after the launch"}
+    ).json()
     assert any(h["id"] == created["id"] for h in hits)
 
     resp = client.post("/api/kb/reindex", headers=auth_headers)
@@ -90,8 +93,7 @@ def test_notification_center_inapp_and_deliveries(client, auth_headers):
     assert marked["read"] == 1
 
     assert client.post("/api/notifications/read-all", headers=auth_headers).status_code == 204
-    inbox = client.get("/api/notifications", headers=auth_headers,
-                       params={"unread_only": True}).json()
+    inbox = client.get("/api/notifications", headers=auth_headers, params={"unread_only": True}).json()
     assert inbox == []
 
     # Email deliveries (client confirmation) are logged with a status.
@@ -109,9 +111,13 @@ def test_memory_context_compresses_long_conversations(client, db_session):
     db_session.add(conversation)
     db_session.flush()
     for i in range(20):
-        db_session.add(Message(conversation_id=conversation.id,
-                               sender="user" if i % 2 else "bot",
-                               text=f"Message number {i} with some substantial content here."))
+        db_session.add(
+            Message(
+                conversation_id=conversation.id,
+                sender="user" if i % 2 else "bot",
+                text=f"Message number {i} with some substantial content here.",
+            )
+        )
     db_session.commit()
     db_session.refresh(conversation)
 

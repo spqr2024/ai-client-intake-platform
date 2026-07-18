@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BackLink, ErrorState, LoadingState, Toast } from "@/components/ui";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -102,12 +102,12 @@ export default function LeadDetailPage() {
     load();
   }
 
-  if (error && !lead) return <div className="rounded-lg bg-rose-50 p-4 text-rose-700">{error}</div>;
-  if (!lead) return <div className="text-slate-400">Loading…</div>;
+  if (error && !lead) return <ErrorState message={error} onRetry={load} />;
+  if (!lead) return <LoadingState label="Loading lead" rows={6} />;
 
   return (
     <div className="mx-auto max-w-5xl">
-      <Link href="/admin" className="text-sm text-indigo-600 hover:underline">← Back to leads</Link>
+      <BackLink href="/admin">← Back to leads</BackLink>
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -155,7 +155,11 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      {error && <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+      {error && (
+        <div className="mt-3">
+          <Toast kind="err" message={error} onDismiss={() => setError("")} />
+        </div>
+      )}
 
       <div className="mt-4 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 text-sm w-fit">
         {(["overview", "replay"] as const).map((t) => (

@@ -39,6 +39,14 @@ async def export_lead(
             status_code=409,
             detail="No CRM provider configured for this workspace (Settings → Integrations).",
         )
-    audit.record(db, admin.workspace_id, admin.email, "crm_export", "lead", lead.id,
-                 detail=f"queued export to {entry.provider}", request=request)
+    audit.record(
+        db,
+        admin.workspace_id,
+        admin.email,
+        "crm_export",
+        "lead",
+        lead.id,
+        detail=f"queued export to {entry.provider}",
+        request=request,
+    )
     return entry

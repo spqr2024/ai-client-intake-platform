@@ -112,13 +112,8 @@ def get_cache() -> CacheBackend:
                 _cache = RedisCache(url)
                 logger.info("Cache backend: Redis (%s)", url.split("@")[-1])
                 return _cache
-            except Exception as exc:  # noqa: BLE001 — any failure falls back
+            except Exception as exc:
                 logger.warning("Redis unavailable (%s); using in-memory cache", exc)
         _cache = MemoryCache()
         logger.info("Cache backend: in-memory (set REDIS_URL for multi-instance deployments)")
         return _cache
-
-
-def reset_cache_for_tests() -> None:
-    global _cache
-    _cache = None

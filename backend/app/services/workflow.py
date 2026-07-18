@@ -167,9 +167,9 @@ def advance(definition: dict, state: dict, user_text: str, lang: str = "en") -> 
         text = CLARIFY_TEXT[lang if lang in CLARIFY_TEXT else "en"]
         if not valid and not vague:
             node_type = node.get("type", "text")
-            text = INVALID_TEXT.get(node_type, {}).get(lang) or INVALID_TEXT.get(
-                node_type, {}
-            ).get("en", text)
+            text = INVALID_TEXT.get(node_type, {}).get(lang) or INVALID_TEXT.get(node_type, {}).get(
+                "en", text
+            )
         _, options = _prompt_for(definition, node_id, lang)
         new_state = {"current_node": node_id, "answers": answers, "clarify_count": clarify_count + 1}
         return StepResult(reply=text, quick_replies=options, needs_clarification=True, state=new_state)
@@ -211,7 +211,10 @@ DEFAULT_WORKFLOW: dict = {
                 "uk": ["Вебсайт", "Інтернет-магазин", "Мобільний застосунок", "Брендинг / Дизайн", "Інше"],
             },
             "branches": [
-                {"if_contains": ["store", "shop", "ecommerce", "e-commerce", "магазин"], "goto": "store_platform"}
+                {
+                    "if_contains": ["store", "shop", "ecommerce", "e-commerce", "магазин"],
+                    "goto": "store_platform",
+                }
             ],
             "next": "goals",
         },

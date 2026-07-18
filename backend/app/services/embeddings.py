@@ -135,11 +135,13 @@ def get_provider() -> EmbeddingProvider:
     model = settings.embedding_model or DEFAULT_MODELS.get(name, "")
 
     if name == "openai" and settings.openai_api_key:
-        return OpenAICompatibleEmbeddings("openai", settings.openai_api_key, model,
-                                          "https://api.openai.com/v1")
+        return OpenAICompatibleEmbeddings(
+            "openai", settings.openai_api_key, model, "https://api.openai.com/v1"
+        )
     if name == "openrouter" and settings.openrouter_api_key:
-        return OpenAICompatibleEmbeddings("openrouter", settings.openrouter_api_key, model,
-                                          "https://openrouter.ai/api/v1")
+        return OpenAICompatibleEmbeddings(
+            "openrouter", settings.openrouter_api_key, model, "https://openrouter.ai/api/v1"
+        )
     if name == "gemini" and settings.gemini_api_key:
         return GeminiEmbeddings(settings.gemini_api_key, model)
     if name not in ("mock", ""):

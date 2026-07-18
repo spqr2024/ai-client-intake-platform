@@ -28,29 +28,32 @@ def summary(db: Session, days: int = 30, workspace_id: int = DEFAULT_WORKSPACE_I
     ws_conversations = select(Conversation).where(Conversation.workspace_id == workspace_id)
     ws_leads = select(Lead).where(Lead.workspace_id == workspace_id)
 
-    total_conversations = db.scalar(
-        select(func.count()).select_from(ws_conversations.subquery())
-    ) or 0
-    completed_conversations = db.scalar(
-        select(func.count(Conversation.id)).where(
-            Conversation.workspace_id == workspace_id, Conversation.status == "Completed"
+    total_conversations = db.scalar(select(func.count()).select_from(ws_conversations.subquery())) or 0
+    completed_conversations = (
+        db.scalar(
+            select(func.count(Conversation.id)).where(
+                Conversation.workspace_id == workspace_id, Conversation.status == "Completed"
+            )
         )
-    ) or 0
+        or 0
+    )
     total_leads = db.scalar(select(func.count()).select_from(ws_leads.subquery())) or 0
-    converted = db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.workspace_id == workspace_id,
-            Lead.status.in_(["Converted", "In Progress", "Qualified"]),
+    converted = (
+        db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.workspace_id == workspace_id,
+                Lead.status.in_(["Converted", "In Progress", "Qualified"]),
+            )
         )
-    ) or 0
-    average_budget = db.scalar(
-        select(func.avg(Lead.budget)).where(
-            Lead.workspace_id == workspace_id, Lead.budget.is_not(None)
+        or 0
+    )
+    average_budget = (
+        db.scalar(
+            select(func.avg(Lead.budget)).where(Lead.workspace_id == workspace_id, Lead.budget.is_not(None))
         )
-    ) or 0
-    average_score = db.scalar(
-        select(func.avg(Lead.score)).where(Lead.workspace_id == workspace_id)
-    ) or 0
+        or 0
+    )
+    average_score = db.scalar(select(func.avg(Lead.score)).where(Lead.workspace_id == workspace_id)) or 0
 
     leads_by_status = dict(
         db.execute(
@@ -112,11 +115,14 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     abandoned_count = status_counts.get("Abandoned", 0)
 
     # Average messages per conversation: two scalar aggregates, no row loading.
-    message_total = db.scalar(
-        select(func.count(Message.id))
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .where(Conversation.workspace_id == workspace_id)
-    ) or 0
+    message_total = (
+        db.scalar(
+            select(func.count(Message.id))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Conversation.workspace_id == workspace_id)
+        )
+        or 0
+    )
     avg_messages = round(message_total / total, 1) if total else 0.0
 
     # Durations: only finished conversations, only the two timestamp columns.
@@ -144,8 +150,7 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     question_rows = db.execute(
         select(Message.text)
         .join(Conversation, Conversation.id == Message.conversation_id)
-        .where(Conversation.workspace_id == workspace_id, Message.sender == "user",
-               Message.text.like("%?%"))
+        .where(Conversation.workspace_id == workspace_id, Message.sender == "user", Message.text.like("%?%"))
         .order_by(Message.id.desc())
         .limit(1000)
     ).all()
@@ -161,15 +166,18 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     quality_bands = {
         "high (70+)": db.scalar(
             select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.score >= 70)
-        ) or 0,
+        )
+        or 0,
         "medium (40-69)": db.scalar(
             select(func.count(Lead.id)).where(
                 Lead.workspace_id == workspace_id, Lead.score >= 40, Lead.score < 70
             )
-        ) or 0,
+        )
+        or 0,
         "low (<40)": db.scalar(
             select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.score < 40)
-        ) or 0,
+        )
+        or 0,
     }
     total_leads = sum(quality_bands.values())
 
@@ -177,14 +185,15 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     # computed as five COUNTs rather than by materializing every lead.
     captured = 0
     for column in (Lead.client_name, Lead.client_email, Lead.service, Lead.timeline):
-        captured += db.scalar(
-            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, column != "")
-        ) or 0
-    captured += db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.workspace_id == workspace_id, Lead.budget.is_not(None)
+        captured += (
+            db.scalar(select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, column != "")) or 0
         )
-    ) or 0
+    captured += (
+        db.scalar(
+            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.budget.is_not(None))
+        )
+        or 0
+    )
     avg_confidence = round(captured / (total_leads * 5), 3) if total_leads else 0.0
 
     funnel = {
@@ -196,12 +205,12 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
                 Lead.workspace_id == workspace_id,
                 Lead.status.in_(["Qualified", "In Progress", "Converted"]),
             )
-        ) or 0,
+        )
+        or 0,
         "converted": db.scalar(
-            select(func.count(Lead.id)).where(
-                Lead.workspace_id == workspace_id, Lead.status == "Converted"
-            )
-        ) or 0,
+            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.status == "Converted")
+        )
+        or 0,
     }
 
     result = {

@@ -119,16 +119,34 @@ async def stream_message(
 
 
 ALLOWED_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".doc", ".docx",
-    ".xls", ".xlsx", ".txt", ".md", ".zip", ".fig", ".sketch",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".txt",
+    ".md",
+    ".zip",
+    ".fig",
+    ".sketch",
 }
 
 # Served with an explicit Content-Type allow-list; everything else downloads as
 # a binary attachment so a stored file can never execute in the browser.
 _INLINE_TYPES = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
-    ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
 }
 
 

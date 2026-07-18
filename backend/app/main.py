@@ -67,9 +67,7 @@ def bootstrap(db) -> None:
     """First-run setup: default admin account and default workflow."""
     settings = get_settings()
     if len(settings.jwt_secret) < 32:
-        logger.warning(
-            "JWT_SECRET is shorter than 32 bytes — generate a strong secret for production"
-        )
+        logger.warning("JWT_SECRET is shorter than 32 bytes — generate a strong secret for production")
     if settings.jwt_secret == "change-me-in-production" and not settings.debug:
         logger.warning("JWT_SECRET is still the documented default — change it before deploying")
     if db.scalars(select(User)).first() is None:
@@ -97,13 +95,14 @@ async def _stale_conversation_reaper() -> None:
                     logger.info("Closed %s stale conversations", closed)
             finally:
                 db.close()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             report_error(exc, component="stale_conversation_reaper")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    db_migrate.enforce_sqlite_foreign_keys(engine)
     db_migrate.migrate(engine)
     Base.metadata.create_all(bind=engine)
     db_migrate.post_create(engine)
@@ -124,8 +123,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_stale_conversation_reaper()),
         asyncio.create_task(queue.worker_loop()),
     ]
-    logger.info("Application started", extra={"version": health.APP_VERSION,
-                                              "demo_mode": settings.demo_mode})
+    logger.info("Application started", extra={"version": health.APP_VERSION, "demo_mode": settings.demo_mode})
     yield
     for task in background:
         task.cancel()
@@ -159,12 +157,13 @@ def create_app() -> FastAPI:
 
         try:
             response = await call_next(request)
-        except Exception as exc:  # noqa: BLE001 — convert to 500 + report
-            report_error(exc, path=request.url.path, method=request.method,
-                         request_id=request_id)
-            metrics.counter("http_requests_total",
-                            labels={"method": request.method, "status": "500"},
-                            help_text="HTTP requests")
+        except Exception as exc:
+            report_error(exc, path=request.url.path, method=request.method, request_id=request_id)
+            metrics.counter(
+                "http_requests_total",
+                labels={"method": request.method, "status": "500"},
+                help_text="HTTP requests",
+            )
             response = JSONResponse(
                 status_code=500,
                 content={"detail": "Internal server error", "request_id": request_id},
@@ -174,17 +173,27 @@ def create_app() -> FastAPI:
             if request.url.path not in _QUIET_PATHS:
                 route = request.scope.get("route")
                 path_label = getattr(route, "path", request.url.path)
-                metrics.counter("http_requests_total",
-                                labels={"method": request.method,
-                                        "status": str(response.status_code)},
-                                help_text="HTTP requests")
-                metrics.observe("http_request_duration_seconds", duration,
-                                labels={"method": request.method, "path": path_label},
-                                help_text="HTTP request latency")
+                metrics.counter(
+                    "http_requests_total",
+                    labels={"method": request.method, "status": str(response.status_code)},
+                    help_text="HTTP requests",
+                )
+                metrics.observe(
+                    "http_request_duration_seconds",
+                    duration,
+                    labels={"method": request.method, "path": path_label},
+                    help_text="HTTP request latency",
+                )
                 logger.info(
-                    "%s %s %s", request.method, request.url.path, response.status_code,
-                    extra={"method": request.method, "status": response.status_code,
-                           "duration_ms": round(duration * 1000, 2)},
+                    "%s %s %s",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
+                    extra={
+                        "method": request.method,
+                        "status": response.status_code,
+                        "duration_ms": round(duration * 1000, 2),
+                    },
                 )
 
         response.headers["X-Request-ID"] = request_id
@@ -193,10 +202,21 @@ def create_app() -> FastAPI:
         return response
 
     for router in (
-        health.router, auth.router, users.router, chat.router, leads.router,
-        workflows.router, kb.router, analytics.router, settings_api.router,
-        telegram.router, public.router, prompts_api.router,
-        notifications_api.router, audit_api.router, crm_api.router,
+        health.router,
+        auth.router,
+        users.router,
+        chat.router,
+        leads.router,
+        workflows.router,
+        kb.router,
+        analytics.router,
+        settings_api.router,
+        telegram.router,
+        public.router,
+        prompts_api.router,
+        notifications_api.router,
+        audit_api.router,
+        crm_api.router,
     ):
         app.include_router(router)
     return app

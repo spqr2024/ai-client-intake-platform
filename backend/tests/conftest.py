@@ -32,9 +32,7 @@ def client():
 
 @pytest.fixture(scope="session")
 def admin_token(client):
-    resp = client.post(
-        "/api/auth/login", json={"email": "admin@test.com", "password": "admin-test-pass"}
-    )
+    resp = client.post("/api/auth/login", json={"email": "admin@test.com", "password": "admin-test-pass"})
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]
 

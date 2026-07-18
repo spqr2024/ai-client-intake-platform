@@ -20,9 +20,7 @@ def test_list_and_filter_leads(client, auth_headers, lead_id):
 
 
 def test_update_status_logs_activity(client, auth_headers, lead_id):
-    resp = client.patch(
-        f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "In Progress"}
-    )
+    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "In Progress"})
     assert resp.status_code == 200
     detail = resp.json()
     assert detail["status"] == "In Progress"
@@ -38,9 +36,7 @@ def test_add_note(client, auth_headers, lead_id):
 
 
 def test_invalid_status_rejected(client, auth_headers, lead_id):
-    resp = client.patch(
-        f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "TotallyBogus"}
-    )
+    resp = client.patch(f"/api/leads/{lead_id}", headers=auth_headers, json={"status": "TotallyBogus"})
     assert resp.status_code == 422
 
 

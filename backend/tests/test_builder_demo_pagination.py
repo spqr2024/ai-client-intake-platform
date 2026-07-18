@@ -48,8 +48,11 @@ def test_analyze_detects_cycles_and_missing_prompt():
 
 
 def test_analyze_endpoint(client, auth_headers):
-    resp = client.post("/api/workflows/analyze", headers=auth_headers,
-                       json={"definition": workflow_templates.TEMPLATES[0]["definition"]})
+    resp = client.post(
+        "/api/workflows/analyze",
+        headers=auth_headers,
+        json={"definition": workflow_templates.TEMPLATES[0]["definition"]},
+    )
     assert resp.status_code == 200
     assert resp.json()["unreachable"] == []
 
@@ -57,12 +60,20 @@ def test_analyze_endpoint(client, auth_headers):
 def test_simulate_replays_a_flow(client, auth_headers):
     definition = workflow_templates.TEMPLATES[0]["definition"]
     resp = client.post(
-        "/api/workflows/simulate", headers=auth_headers,
+        "/api/workflows/simulate",
+        headers=auth_headers,
         json={
             "definition": definition,
-            "answers": ["Alice", "Online store", "Shopify",
-                        "Sell candles across the EU", "$5000", "1-3 months",
-                        "alice@example.com", "no"],
+            "answers": [
+                "Alice",
+                "Online store",
+                "Shopify",
+                "Sell candles across the EU",
+                "$5000",
+                "1-3 months",
+                "alice@example.com",
+                "no",
+            ],
         },
     )
     assert resp.status_code == 200
@@ -74,16 +85,26 @@ def test_simulate_replays_a_flow(client, auth_headers):
 
 
 def test_simulate_rejects_broken_definition(client, auth_headers):
-    resp = client.post("/api/workflows/simulate", headers=auth_headers,
-                       json={"definition": {"start": "missing", "nodes": {}}, "answers": []})
+    resp = client.post(
+        "/api/workflows/simulate",
+        headers=auth_headers,
+        json={"definition": {"start": "missing", "nodes": {}}, "answers": []},
+    )
     assert resp.status_code == 422
 
 
 def test_builder_can_save_a_template_flow(client, auth_headers):
     template = next(t for t in workflow_templates.TEMPLATES if t["key"] == "clinic")
-    resp = client.post("/api/workflows", headers=auth_headers,
-                       json={"name": "Clinic intake (test)", "definition": template["definition"],
-                             "is_default": False, "prompt_name": ""})
+    resp = client.post(
+        "/api/workflows",
+        headers=auth_headers,
+        json={
+            "name": "Clinic intake (test)",
+            "definition": template["definition"],
+            "is_default": False,
+            "prompt_name": "",
+        },
+    )
     assert resp.status_code == 201
     assert resp.json()["name"] == "Clinic intake (test)"
 
@@ -120,18 +141,15 @@ def test_lead_list_is_paginated_with_total_header(client, auth_headers):
     assert total >= len(body)
 
     if total > 2:
-        page_two = client.get("/api/leads", headers=auth_headers,
-                              params={"limit": 2, "offset": 2}).json()
+        page_two = client.get("/api/leads", headers=auth_headers, params={"limit": 2, "offset": 2}).json()
         assert {lead["id"] for lead in page_two}.isdisjoint({lead["id"] for lead in body})
 
 
 def test_total_count_respects_filters(client, auth_headers):
-    filtered = client.get("/api/leads", headers=auth_headers,
-                          params={"status": "Qualified", "limit": 1})
+    filtered = client.get("/api/leads", headers=auth_headers, params={"status": "Qualified", "limit": 1})
     total = int(filtered.headers["X-Total-Count"])
     unfiltered_total = int(
-        client.get("/api/leads", headers=auth_headers, params={"limit": 1})
-        .headers["X-Total-Count"]
+        client.get("/api/leads", headers=auth_headers, params={"limit": 1}).headers["X-Total-Count"]
     )
     assert total <= unfiltered_total
 
@@ -166,9 +184,15 @@ def test_attachment_download_is_workspace_scoped(client, auth_headers, db_sessio
         other = Workspace(name="Other", slug="other-ws")
         db_session.add(other)
         db_session.flush()
-        db_session.add(User(workspace_id=other.id, name="Other Admin",
-                            email="admin@other-ws.example", password_hash=hash_password("other-pass-1"),
-                            role="admin"))
+        db_session.add(
+            User(
+                workspace_id=other.id,
+                name="Other Admin",
+                email="admin@other-ws.example",
+                password_hash=hash_password("other-pass-1"),
+                role="admin",
+            )
+        )
         db_session.commit()
 
     start = client.post("/api/chat/start", json={"client_name": "Scoped"}).json()
@@ -177,8 +201,8 @@ def test_attachment_download_is_workspace_scoped(client, auth_headers, db_sessio
         files={"file": ("secret.txt", io.BytesIO(b"tenant data"), "text/plain")},
     ).json()
 
-    login = client.post("/api/auth/login",
-                        json={"email": "admin@other-ws.example", "password": "other-pass-1"})
+    login = client.post(
+        "/api/auth/login", json={"email": "admin@other-ws.example", "password": "other-pass-1"}
+    )
     other_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    assert client.get(f"/api/chat/attachments/{upload['id']}",
-                      headers=other_headers).status_code == 404
+    assert client.get(f"/api/chat/attachments/{upload['id']}", headers=other_headers).status_code == 404

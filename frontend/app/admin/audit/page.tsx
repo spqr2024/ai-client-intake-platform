@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, AuditOut } from "@/lib/api";
+import { EmptyState, focusRing, PageHeader } from "@/components/ui";
 
 const ACTION_ICONS: Record<string, string> = {
   login: "🔑",
@@ -42,35 +43,48 @@ export default function AuditPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Audit log</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Security and configuration events across the workspace.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">All actions</option>
-            {Object.keys(ACTION_ICONS).map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-          <input
-            value={actor}
-            onChange={(e) => setActor(e.target.value)}
-            placeholder="Filter by actor…"
-            className="w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
-          />
-        </div>
-      </div>
+      <PageHeader
+        title="Audit log"
+        description="Security and configuration events across the workspace."
+        actions={
+          <>
+            <label className="sr-only" htmlFor="audit-action">
+              Filter by action
+            </label>
+            <select
+              id="audit-action"
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm ${focusRing}`}
+            >
+              <option value="">All actions</option>
+              {Object.keys(ACTION_ICONS).map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+            <label className="sr-only" htmlFor="audit-actor">
+              Filter by actor
+            </label>
+            <input
+              id="audit-actor"
+              type="search"
+              value={actor}
+              onChange={(e) => setActor(e.target.value)}
+              placeholder="Filter by actor…"
+              className={`w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm ${focusRing}`}
+            />
+          </>
+        }
+      />
 
+      {entries.length === 0 ? (
+        <EmptyState
+          icon="🛡️"
+          title="No audit entries"
+          description="Logins, role changes and configuration edits are recorded here as they happen."
+        />
+      ) : (
       <div className="rounded-xl border border-slate-200 bg-white">
-        {entries.length === 0 && <p className="p-8 text-center text-sm text-slate-400">No entries.</p>}
         <ul className="divide-y divide-slate-50">
           {entries.map((entry) => (
             <li key={entry.id} className="flex items-start gap-3 px-5 py-3 text-sm">
@@ -95,6 +109,7 @@ export default function AuditPage() {
           ))}
         </ul>
       </div>
+      )}
     </div>
   );
 }

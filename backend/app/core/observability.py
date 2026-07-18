@@ -40,22 +40,23 @@ class MetricsRegistry:
         self._histograms: dict[tuple[str, Labels], list[float]] = {}
         self._help: dict[str, str] = {}
 
-    def counter(self, name: str, value: float = 1, labels: dict[str, str] | None = None,
-                help_text: str = "") -> None:
+    def counter(
+        self, name: str, value: float = 1, labels: dict[str, str] | None = None, help_text: str = ""
+    ) -> None:
         with self._lock:
             self._help.setdefault(name, help_text or name)
-            self._counters[(name, _freeze(labels))] = (
-                self._counters.get((name, _freeze(labels)), 0.0) + value
-            )
+            self._counters[(name, _freeze(labels))] = self._counters.get((name, _freeze(labels)), 0.0) + value
 
-    def gauge(self, name: str, value: float, labels: dict[str, str] | None = None,
-              help_text: str = "") -> None:
+    def gauge(
+        self, name: str, value: float, labels: dict[str, str] | None = None, help_text: str = ""
+    ) -> None:
         with self._lock:
             self._help.setdefault(name, help_text or name)
             self._gauges[(name, _freeze(labels))] = value
 
-    def observe(self, name: str, value: float, labels: dict[str, str] | None = None,
-                help_text: str = "") -> None:
+    def observe(
+        self, name: str, value: float, labels: dict[str, str] | None = None, help_text: str = ""
+    ) -> None:
         with self._lock:
             self._help.setdefault(name, help_text or name)
             self._histograms.setdefault((name, _freeze(labels)), []).append(value)
@@ -100,9 +101,7 @@ class MetricsRegistry:
                     ordered = sorted(values)
                     for bucket in DEFAULT_BUCKETS:
                         cumulative = sum(1 for v in ordered if v <= bucket)
-                        lines.append(
-                            f"{name}_bucket{_render_labels(labels, le=str(bucket))} {cumulative}"
-                        )
+                        lines.append(f"{name}_bucket{_render_labels(labels, le=str(bucket))} {cumulative}")
                     lines.append(f"{name}_bucket{_render_labels(labels, le='+Inf')} {len(ordered)}")
                     lines.append(f"{name}_sum{_render_labels(labels)} {round(sum(ordered), 6)}")
                     lines.append(f"{name}_count{_render_labels(labels)} {len(ordered)}")
@@ -119,7 +118,7 @@ def _render_labels(labels: Labels, **extra: str) -> str:
     items = list(labels) + list(extra.items())
     if not items:
         return ""
-    rendered = ",".join(f'{k}="{str(v)}"' for k, v in items)
+    rendered = ",".join(f'{k}="{v!s}"' for k, v in items)
     return "{" + rendered + "}"
 
 
@@ -156,8 +155,8 @@ _reporter: ErrorReporter = _default_reporter
 def set_error_reporter(reporter: ErrorReporter) -> None:
     """Install an external reporter, e.g.:
 
-        import sentry_sdk
-        set_error_reporter(lambda exc, ctx: sentry_sdk.capture_exception(exc))
+    import sentry_sdk
+    set_error_reporter(lambda exc, ctx: sentry_sdk.capture_exception(exc))
     """
     global _reporter
     _reporter = reporter
@@ -166,5 +165,5 @@ def set_error_reporter(reporter: ErrorReporter) -> None:
 def report_error(exc: BaseException, **context) -> None:
     try:
         _reporter(exc, context)
-    except Exception:  # noqa: BLE001 — reporting must never raise into request flow
+    except Exception:
         logger.exception("Error reporter itself failed")

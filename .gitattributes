@@ -1,0 +1,18 @@
+# Normalize line endings so Windows and Unix contributors don't produce
+# whole-file diffs. Text is LF in the repository, checked out natively.
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+Makefile text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.pdf  binary
+*.docx binary
+*.sqlite3 binary

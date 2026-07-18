@@ -1,0 +1,41 @@
+# Keeps the build context small and prevents secrets/artifacts from being
+# copied into images. Without this the context included ~560 MB of .venv and
+# node_modules, and would have shipped a local .env into the image layers.
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Python
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/htmlcov/
+**/.coverage
+**/*.sqlite3
+**/data/
+**/uploads/
+
+# Node / Next
+**/node_modules/
+**/.next/
+**/out/
+**/coverage/
+
+# Version control & tooling
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+
+# Docs and local artifacts (not needed at runtime)
+docs/
+*.md
+!README.md
+*.docx

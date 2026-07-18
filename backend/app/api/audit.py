@@ -19,5 +19,4 @@ def list_audit(
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    return audit_service.query(db, admin.workspace_id, action=action, actor=actor,
-                               limit=limit, offset=offset)
+    return audit_service.query(db, admin.workspace_id, action=action, actor=actor, limit=limit, offset=offset)

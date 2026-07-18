@@ -2,9 +2,7 @@
 
 
 def _login(client):
-    resp = client.post(
-        "/api/auth/login", json={"email": "admin@test.com", "password": "admin-test-pass"}
-    )
+    resp = client.post("/api/auth/login", json={"email": "admin@test.com", "password": "admin-test-pass"})
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -33,8 +31,7 @@ def test_refresh_rotates_token(client):
 def test_logout_revokes_refresh_token(client):
     body = _login(client)
     headers = {"Authorization": f"Bearer {body['access_token']}"}
-    resp = client.post("/api/auth/logout", headers=headers,
-                       json={"refresh_token": body["refresh_token"]})
+    resp = client.post("/api/auth/logout", headers=headers, json={"refresh_token": body["refresh_token"]})
     assert resp.status_code == 204
     resp = client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
     assert resp.status_code == 401

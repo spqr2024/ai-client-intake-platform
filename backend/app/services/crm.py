@@ -102,9 +102,7 @@ async def _post_json(url: str, payload: dict, headers: dict, provider: str) -> d
             response.raise_for_status()
             return response.json() if response.content else {}
     except httpx.HTTPStatusError as exc:
-        raise CRMError(
-            f"{provider}: HTTP {exc.response.status_code} — {exc.response.text[:200]}"
-        ) from exc
+        raise CRMError(f"{provider}: HTTP {exc.response.status_code} — {exc.response.text[:200]}") from exc
     except httpx.HTTPError as exc:
         raise CRMError(f"{provider}: {exc}") from exc
 
@@ -130,13 +128,14 @@ class HubSpotProvider(CRMProvider):
         }
         result = await _post_json(
             "https://api.hubapi.com/crm/v3/objects/contacts",
-            body, {"Authorization": f"Bearer {config.api_key}"}, self.label,
+            body,
+            {"Authorization": f"Bearer {config.api_key}"},
+            self.label,
         )
         contact_id = str(result.get("id", ""))
         return CRMResult(
             external_id=contact_id,
-            external_url=f"https://app.hubspot.com/contacts/objects/0-1/{contact_id}"
-            if contact_id else "",
+            external_url=f"https://app.hubspot.com/contacts/objects/0-1/{contact_id}" if contact_id else "",
         )
 
 
@@ -156,7 +155,8 @@ class PipedriveProvider(CRMProvider):
                 "email": [data["email"]] if data["email"] else [],
                 "phone": [data["phone"]] if data["phone"] else [],
             },
-            {}, self.label,
+            {},
+            self.label,
         )
         person_id = (person.get("data") or {}).get("id")
         deal = await _post_json(
@@ -167,7 +167,8 @@ class PipedriveProvider(CRMProvider):
                 "currency": "USD",
                 "person_id": person_id,
             },
-            {}, self.label,
+            {},
+            self.label,
         )
         deal_id = str((deal.get("data") or {}).get("id", ""))
         return CRMResult(
@@ -261,13 +262,17 @@ class WebhookProvider(CRMProvider):
         if not url:
             raise CRMError("Webhook: 'url' option is required")
         headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
-        await _post_json(url, {"event": "lead.created", "lead": self.lead_payload(lead)},
-                         headers, self.label)
+        await _post_json(url, {"event": "lead.created", "lead": self.lead_payload(lead)}, headers, self.label)
         return CRMResult(external_id=str(lead.id))
 
 
-for _provider in (HubSpotProvider(), PipedriveProvider(), NotionProvider(),
-                  SalesforceProvider(), WebhookProvider()):
+for _provider in (
+    HubSpotProvider(),
+    PipedriveProvider(),
+    NotionProvider(),
+    SalesforceProvider(),
+    WebhookProvider(),
+):
     register_provider(_provider)
 
 
@@ -322,8 +327,7 @@ async def _handle_export(payload: dict) -> None:
             entry.external_url = result.external_url[:500]
             entry.error = ""
             db.commit()
-            logger.info("Exported lead to CRM",
-                        extra={"lead_id": lead.id, "provider": entry.provider})
+            logger.info("Exported lead to CRM", extra={"lead_id": lead.id, "provider": entry.provider})
         except CRMError as exc:
             entry.error = str(exc)[:1000]
             if entry.attempts >= queue.MAX_ATTEMPTS:

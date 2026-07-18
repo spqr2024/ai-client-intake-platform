@@ -21,15 +21,15 @@ from app.services import llm, runtime_settings
 
 logger = logging.getLogger(__name__)
 
-SHORT_TERM_MESSAGES = 8       # most recent messages kept verbatim
-TOKEN_BUDGET = 1600           # max estimated tokens for the whole context
-MEMORY_TTL_HOURS = 48         # rolling summary is stale after this
+SHORT_TERM_MESSAGES = 8  # most recent messages kept verbatim
+TOKEN_BUDGET = 1600  # max estimated tokens for the whole context
+MEMORY_TTL_HOURS = 48  # rolling summary is stale after this
 
 
 @dataclass
 class ConversationContext:
-    messages: list[dict]      # [{role, content}] ready for the LLM
-    summary: str              # long-term memory ("" when none)
+    messages: list[dict]  # [{role, content}] ready for the LLM
+    summary: str  # long-term memory ("" when none)
     estimated_tokens: int
 
 
@@ -70,7 +70,7 @@ async def build_context(db: Session, conversation: Conversation) -> Conversation
     refreshing the stored rolling summary when older messages accumulate."""
     messages = list(conversation.messages)
     recent = messages[-SHORT_TERM_MESSAGES:]
-    older = messages[: -SHORT_TERM_MESSAGES] if len(messages) > SHORT_TERM_MESSAGES else []
+    older = messages[:-SHORT_TERM_MESSAGES] if len(messages) > SHORT_TERM_MESSAGES else []
 
     state = dict(conversation.state or {})
     memory = dict(state.get("memory") or {})
@@ -91,9 +91,7 @@ async def build_context(db: Session, conversation: Conversation) -> Conversation
     context: list[dict] = []
     if summary:
         context.append({"role": "user", "content": f"[Conversation context so far: {summary}]"})
-    context += [
-        {"role": "assistant" if m.sender == "bot" else "user", "content": m.text} for m in recent
-    ]
+    context += [{"role": "assistant" if m.sender == "bot" else "user", "content": m.text} for m in recent]
 
     # Enforce the token budget by dropping oldest short-term messages first
     # (the summary already covers them in spirit).

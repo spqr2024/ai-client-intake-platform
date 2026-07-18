@@ -312,11 +312,36 @@ drops a column older code reads, so image rollbacks stay safe. DEPLOYMENT.md
 documents exactly how to graduate to Alembic when schema changes get riskier.
 </details>
 
+## ⚠️ Known limitations
+
+Stated plainly, because a repository that hides its edges is harder to trust
+than one that names them. Full table with remediation paths in
+**[ROADMAP.md](ROADMAP.md#known-limitations)**.
+
+| Limitation | What it means in practice |
+|---|---|
+| Offline embedder matches morphology, not synonyms | Out of the box, "money back" won't retrieve a "refund" article. Set `EMBEDDING_PROVIDER` + key and **Re-index all** for true semantic recall |
+| Brute-force vector search | Comfortable to a few thousand chunks; linear beyond. `VectorStore` is the seam for pgvector |
+| Tag filtering runs in Python | The JSON column is portable but not indexable; a Postgres `jsonb` + GIN index is the upgrade |
+| No browser E2E or load tests | Unit and integration layers are thorough; concurrency behaviour is reasoned, not measured |
+| Provider API keys live in workspace settings | Fine self-hosted; a shared SaaS should move them to a secret manager |
+| Scanned PDFs are rejected | No OCR — the uploader says so explicitly rather than indexing an empty document |
+| In-house additive migrator, not Alembic | Idempotent and CI-verified; [DEPLOYMENT.md](docs/DEPLOYMENT.md#5-database-migrations) documents the graduation path |
+
 ## 📚 More docs
 
-[ARCHITECTURE](docs/ARCHITECTURE.md) · [DEPLOYMENT](docs/DEPLOYMENT.md) ·
-[TROUBLESHOOTING](docs/TROUBLESHOOTING.md) · [CONTRIBUTING](CONTRIBUTING.md) ·
-[SECURITY](SECURITY.md) · [ROADMAP](ROADMAP.md) · [CHANGELOG](CHANGELOG.md)
+**Engineering**
+[Architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) ·
+[Security](SECURITY.md) · [Deployment](docs/DEPLOYMENT.md) ·
+[Troubleshooting](docs/TROUBLESHOOTING.md) · [Disaster recovery](docs/DISASTER_RECOVERY.md)
+
+**Project**
+[Contributing](CONTRIBUTING.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) ·
+[Releasing](docs/RELEASING.md)
+
+**Presentation**
+[Case study](docs/portfolio/CASE_STUDY.md) · [Brand & visual identity](docs/BRAND.md) ·
+[Screenshot capture guide](docs/SCREENSHOTS.md)
 
 ## 📄 License
 

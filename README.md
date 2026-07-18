@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)](frontend/)
-[![Tests](https://img.shields.io/badge/tests-112_passing-brightgreen)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-136_passing-brightgreen)](backend/tests/)
 [![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](backend/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -181,7 +181,7 @@ Interactive OpenAPI docs at `/docs`. Highlights (🔒 = JWT, 👑 = admin):
 ## 🧪 Testing & quality
 
 ```bash
-cd backend && ruff check app tests && pytest --cov=app   # 66 tests
+cd backend && ruff check app tests && pytest --cov=app   # 112 tests, 84% coverage
 cd frontend && npm run lint && npm run build
 ```
 
@@ -207,23 +207,35 @@ docs/           # ARCHITECTURE.md
 
 ## 📸 Screenshots
 
-Screenshots are generated locally rather than committed, so they always match
-the code in your checkout:
+> **Status:** this repository was built in a headless environment with no
+> browser automation, so the images are captured locally rather than committed
+> pre-baked — which also guarantees they always match your checkout.
+> **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** specifies every route, state,
+> viewport and filename, plus a copy-paste checklist. Two commands and about
+> fifteen minutes produce the full set.
 
 ```bash
-DEMO_MODE=true uvicorn app.main:app     # backend, seeds a populated workspace
-npm run dev                             # frontend
+make demo        # API on :8000 with a fully populated demo workspace
+make frontend    # web app on :3000  →  admin@example.com / admin12345
 ```
 
-Then capture these five views (admin login: `admin@example.com` / `admin12345`):
+**The views worth capturing** — each one proves a different claim:
 
-| View | URL | Shows |
+| View | Route | What it demonstrates |
 |---|---|---|
-| Landing + chat widget | `/` | Conversational intake, quick replies, streaming |
-| Kanban pipeline | `/admin` → Kanban | Drag-and-drop CRM across workspace stages |
-| Lead detail + replay | `/admin/leads/1` | AI summary, transcript, step-by-step replay |
-| AI analytics | `/admin/analytics` | Funnel, drop-off by workflow node, confidence |
-| Workflow builder | `/admin/workflows` | Visual step editor with live flow validation |
+| Conversational intake | `/` | Adaptive questions, quick replies, SSE streaming |
+| Kanban pipeline | `/admin` → Kanban | A real CRM board, not a lead list |
+| Lead detail | `/admin/leads/1` | AI summary feeding a workable record |
+| Conversation replay | `/admin/leads/1` → Replay | Step-by-step playback with workflow-node metadata |
+| AI analytics | `/admin/analytics` | Funnel, drop-off by node, capture confidence |
+| Visual workflow builder | `/admin/workflows` | Non-engineers editing the bot, with live validation |
+| Knowledge base | `/admin/kb` | Document ingestion with real indexing status |
+| Integrations | `/admin/settings` → Integrations | CRM adapters and the delivery log |
+| Mobile dashboard | `/admin` @ 393×852 | Genuine responsive layout, not a squeezed table |
+
+Four short GIF walkthroughs are scripted in the same guide: visitor → qualified
+lead, kanban management, editing the bot without code, and teaching the bot from
+an uploaded PDF.
 
 ## ❓ FAQ
 

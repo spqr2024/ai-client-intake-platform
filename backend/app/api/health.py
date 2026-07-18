@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.core.cache import get_cache
 from app.core.config import get_settings
 from app.core.observability import metrics
@@ -22,7 +23,7 @@ from app.db import get_db
 router = APIRouter(tags=["operations"])
 
 _STARTED_AT = time.time()
-APP_VERSION = "2.1.0"
+APP_VERSION = __version__
 
 
 def _check_database(db: Session) -> dict:

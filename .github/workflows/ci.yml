@@ -27,6 +27,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Version and changelog agree
+        # Documented in docs/RELEASING.md — the app version is single-sourced in
+        # backend/app/__init__.py and must match the newest CHANGELOG heading.
+        run: |
+          VERSION=$(python -c "from app import __version__; print(__version__)")
+          LATEST=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' ../CHANGELOG.md | tr -d '## []')
+          echo "__version__=$VERSION  changelog=$LATEST"
+          test "$VERSION" = "$LATEST"
+
       - name: Lint
         run: ruff check app tests
 

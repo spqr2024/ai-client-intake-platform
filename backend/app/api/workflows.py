@@ -6,7 +6,8 @@ from app.api.deps import require_admin
 from app.db import get_db
 from app.models import User, Workflow
 from app.schemas import WorkflowCreate, WorkflowOut
-from app.services import audit
+from app.services import audit, workflow_templates
+from app.services import workflow as wf
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
@@ -33,6 +34,58 @@ def _get_workflow(db: Session, workflow_id: int, user: User) -> Workflow:
     if workflow is None or workflow.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
+
+
+@router.get("/templates")
+def list_templates(_: User = Depends(require_admin)):
+    """Starter flows and reusable step blueprints for the visual builder."""
+    return {
+        "templates": [
+            {"key": t["key"], "name": t["name"], "description": t["description"],
+             "definition": t["definition"]}
+            for t in workflow_templates.TEMPLATES
+        ],
+        "node_library": workflow_templates.NODE_LIBRARY,
+        "field_types": ["text", "choice", "number", "email", "phone"],
+    }
+
+
+@router.post("/analyze")
+def analyze_definition(body: dict, _: User = Depends(require_admin)):
+    """Structural report (reachability, dead ends, loops) for the builder's
+    live validation panel. Warnings never block saving."""
+    return workflow_templates.analyze(body.get("definition", body))
+
+
+@router.post("/simulate")
+def simulate(body: dict, _: User = Depends(require_admin)):
+    """Dry-run a flow against scripted answers so an admin can test a
+    conversation before publishing it — no LLM or database involved."""
+    definition = body.get("definition", {})
+    answers = body.get("answers", [])
+    language = body.get("language", "en")
+    _validate_definition(definition)
+
+    transcript: list[dict] = []
+    step = wf.start(definition, {}, language)
+    transcript.append({"sender": "bot", "text": step.reply,
+                       "quick_replies": step.quick_replies, "node": step.state.get("current_node")})
+    state = step.state
+    for answer in answers[:50]:
+        if step.done:
+            break
+        transcript.append({"sender": "user", "text": str(answer)})
+        step = wf.advance(definition, state, str(answer), language)
+        state = step.state
+        if step.done:
+            transcript.append({"sender": "bot", "text": "[flow complete — lead would be created]",
+                               "quick_replies": [], "node": None})
+        else:
+            transcript.append({"sender": "bot", "text": step.reply,
+                               "quick_replies": step.quick_replies,
+                               "node": state.get("current_node"),
+                               "clarification": step.needs_clarification})
+    return {"transcript": transcript, "collected": state.get("answers", {}), "done": step.done}
 
 
 @router.get("", response_model=list[WorkflowOut])

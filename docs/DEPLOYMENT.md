@@ -1,0 +1,208 @@
+# Deployment Guide
+
+This guide covers taking the platform from a local clone to a production
+deployment a paying customer can rely on.
+
+---
+
+## 1. Pre-flight checklist
+
+Do not skip these — the first three are the difference between a demo and a
+production system.
+
+| # | Item | Why |
+|---|---|---|
+| 1 | **Generate a strong `JWT_SECRET`** (`openssl rand -hex 32`) | The default is public. Anyone can forge admin tokens without this. |
+| 2 | **Change `ADMIN_PASSWORD`** (or delete the bootstrap admin after creating a real one) | The documented default grants full workspace access. |
+| 3 | **Set `DEMO_MODE=false`** | Otherwise a fresh production database is seeded with fake leads. |
+| 4 | Set `DATABASE_URL` to managed PostgreSQL | SQLite has no concurrent-write story and no managed backups. |
+| 5 | Set `REDIS_URL` if running >1 replica | Rate limits, lockouts and the task queue become cluster-wide. |
+| 6 | Set `CORS_ORIGINS` to your real domain(s) | Prevents other origins from calling your API with a user's token. |
+| 7 | Set `PUBLIC_APP_URL` to the deployed dashboard URL | Deep links in Telegram/email/in-app notifications point here. |
+| 8 | Terminate TLS in front of the app | Tokens travel in the `Authorization` header. |
+| 9 | Configure `SMTP_*` | Without it, client confirmation emails only go to the log. |
+| 10 | Decide the AI provider and set its key | `mock` is deterministic and free but does not rephrase or summarize. |
+
+Verify after boot:
+
+```bash
+curl -s https://api.example.com/health/ready | jq   # expect "status": "ready"
+curl -s https://api.example.com/metrics | head      # Prometheus exposition
+```
+
+---
+
+## 2. Docker Compose (single host)
+
+The fastest credible production setup — suitable for early customers.
+
+```bash
+git clone <repo-url> && cd ai-client-intake-platform
+cp .env.example .env
+# edit .env per the checklist above
+docker compose up -d --build
+docker compose logs -f backend
+```
+
+Compose starts PostgreSQL, Redis, the API and the frontend. Add a reverse
+proxy (Caddy/Nginx/Traefik) in front for TLS:
+
+```caddy
+api.example.com { reverse_proxy backend:8000 }
+app.example.com { reverse_proxy frontend:3000 }
+```
+
+Then set `CORS_ORIGINS=https://app.example.com` and
+`PUBLIC_APP_URL=https://app.example.com`, and rebuild the frontend with
+`NEXT_PUBLIC_API_URL=https://api.example.com`.
+
+---
+
+## 3. Platform-as-a-Service (Render / Railway / Fly.io)
+
+Two services plus two managed add-ons.
+
+**Backend service**
+- Build: `pip install -r backend/requirements.txt`
+- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (working dir `backend/`)
+- Health check path: `/health/ready`
+- Attach managed PostgreSQL → `DATABASE_URL`, managed Redis → `REDIS_URL`
+
+**Frontend service**
+- Build: `npm ci && npm run build` (working dir `frontend/`), with
+  `NEXT_PUBLIC_API_URL` set at *build* time — it is inlined into the bundle.
+- Start: `npm start`
+
+> **Gotcha:** `NEXT_PUBLIC_*` variables are baked in during `npm run build`.
+> Changing them requires a rebuild, not just a restart.
+
+---
+
+## 4. Kubernetes sketch
+
+```yaml
+livenessProbe:                 # restart only when the process is wedged
+  httpGet: { path: /health/live, port: 8000 }
+  initialDelaySeconds: 10
+readinessProbe:                # pull from the load balancer when deps are down
+  httpGet: { path: /health/ready, port: 8000 }
+  periodSeconds: 10
+```
+
+Keeping these separate matters: a database blip should drain traffic
+(readiness), not trigger a restart storm (liveness).
+
+Scale the API horizontally — instances are stateless. Set `REDIS_URL` so the
+task queue is shared; otherwise each replica keeps its own in-process queue
+and retries stay local to the instance that enqueued them.
+
+---
+
+## 5. Database migrations
+
+An additive auto-migrator runs at startup (`app/db_migrate.py`): it adds new
+columns, rebuilds `app_settings` for tenancy, and drops obsolete tables. It is
+data-preserving and idempotent.
+
+For regulated or high-value production data, graduate to Alembic:
+
+```bash
+cd backend
+alembic init migrations           # one-time
+alembic revision --autogenerate -m "baseline from current models"
+alembic upgrade head
+```
+
+Then set the migrator to no-op and run `alembic upgrade head` in your release
+pipeline. Always snapshot the database before a schema change.
+
+---
+
+## 6. Backups and retention
+
+- **Database:** enable your provider's automated daily snapshots plus
+  point-in-time recovery. Test a restore before you need one.
+- **Uploads:** the `uploads` volume holds visitor attachments. Back it up, or
+  move to object storage (S3/R2) by replacing the write in
+  `api/chat.py::upload_file` and the read in `download_attachment`.
+- **Retention:** the platform stores chat transcripts and lead PII. Define a
+  retention window (the spec suggests 2 years) and schedule deletion —
+  GDPR requires you honor deletion requests.
+
+---
+
+## 7. Observability wiring
+
+**Prometheus** — scrape the API directly, no exporter sidecar needed:
+
+```yaml
+scrape_configs:
+  - job_name: intake-platform
+    metrics_path: /metrics
+    static_configs: [{ targets: ["backend:8000"] }]
+```
+
+Useful queries for a Grafana dashboard:
+
+```promql
+sum(rate(http_requests_total{status=~"5.."}[5m]))                       # error rate
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+sum(rate(tasks_processed_total{result="dead_letter"}[15m]))             # lost notifications
+sum(rate(kb_search_total{result="miss"}[1h]))                           # KB gaps
+```
+
+**Logs** — JSON on stdout, one object per line, carrying `request_id`,
+`path`, `status` and `duration_ms`. Ship with your platform's log driver;
+no application change required.
+
+**Error reporting** — the app never imports a vendor. To enable Sentry:
+
+```python
+# backend/app/main.py, after configure_logging(...)
+import sentry_sdk
+from app.core.observability import set_error_reporter
+
+sentry_sdk.init(dsn=os.environ["SENTRY_DSN"], traces_sample_rate=0.1)
+set_error_reporter(lambda exc, ctx: sentry_sdk.capture_exception(exc))
+```
+
+---
+
+## 8. Telegram webhook registration
+
+Telegram must reach a public HTTPS URL:
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+  -d "url=https://api.example.com/api/webhook/telegram" \
+  -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+
+curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"   # verify
+```
+
+The endpoint rejects requests whose `X-Telegram-Bot-Api-Secret-Token` header
+does not match, so always set `secret_token`.
+
+---
+
+## 9. Post-deploy smoke test
+
+```bash
+BASE=https://api.example.com
+curl -s $BASE/health/ready | jq -e '.status == "ready"'
+CID=$(curl -s -X POST $BASE/api/chat/start -H 'Content-Type: application/json' \
+      -d '{"client_name":"Smoke Test"}' | jq -r .conversation_id)
+curl -s -X POST $BASE/api/chat/$CID/msg -H 'Content-Type: application/json' \
+      -d '{"text":"Website"}' | jq -e '.bot_message'
+```
+
+Then sign in to `/admin`, confirm the lead appears, and check
+Settings → Integrations for the delivery log.
+
+---
+
+## 10. Rollback
+
+Images are immutable per commit, and the migrator is additive (it never drops
+a column that older code reads), so rolling back the application image is
+safe. Restore a database snapshot only if a release wrote bad data.

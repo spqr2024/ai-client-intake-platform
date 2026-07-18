@@ -22,7 +22,7 @@ def update_settings_values(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    changed = sorted(set(body.values) & runtime_settings.EDITABLE_KEYS)
+    changed = sorted(key for key in body.values if runtime_settings.is_editable(key))
     result = runtime_settings.set_many(db, body.values, admin.workspace_id)
     audit.record(db, admin.workspace_id, admin.email, "settings_updated", "settings", "",
                  detail=f"keys: {', '.join(changed)}", request=request)

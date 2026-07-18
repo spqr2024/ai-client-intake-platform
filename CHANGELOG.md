@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [2.1.0] — 2026-07-18
+
+Production-readiness audit. No features were removed; all existing API
+contracts are unchanged.
+
+### Fixed
+- **Structured logs were invalid JSON.** The format string interpolated the message inside quotes, so any message containing `"` (every httpx access log) produced unparseable output. Replaced with a real `JsonFormatter`; log aggregation now works.
+- **Delayed queue retries could be dropped.** `asyncio.create_task` was called without keeping a reference, so the GC could collect a pending retry. Retries are now strongly referenced until completion.
+- **Uploaded attachments were unreachable.** Files were stored and listed but had no download route; added an authenticated, workspace-scoped endpoint with a content-type allow-list and `nosniff`.
+- **New CRM adapters could not store their options.** The settings whitelist was static while the provider registry is dynamic; added prefix-based dynamic keys so a new adapter's `option_keys` persist without touching the settings module.
+
+### Added
+- **Visual workflow builder**: step cards (question per language, answer type, quick replies, branching, reorder), live structural validation (unreachable steps, loops, dead ends, missing prompts), 5 industry templates, a reusable step library, and a dry-run simulator. JSON editing is now optional.
+- **Document knowledge base**: PDF/DOCX/Markdown/TXT ingestion with graceful degradation when optional extractors are absent, paragraph-aware chunking with overlap, chunk-level embeddings, per-document indexing status, version history with restore, metadata, and retrieval analytics (hit rate, top documents, unanswered questions).
+- **CRM integration layer**: `CRMProvider` registry with HubSpot, Pipedrive, Notion, Salesforce and generic-webhook adapters; queue-backed export with retry and a per-lead sync log; manual export endpoint.
+- **Demo mode** (`DEMO_MODE`): auto-provisions a populated workspace — 12 leads across the pipeline, transcripts with replay metadata, drop-off conversations, KB articles (indexed at boot), branding and notifications.
+- **Operations**: separate `/health/live` and `/health/ready` probes, Prometheus `/metrics` (no vendor dependency), `/metrics/json`, request-id correlation across logs and responses, request latency/status metrics, and a pluggable error-reporting seam.
+- **Responsive & accessible UI**: mobile navigation drawer, card layouts for tables under `md`, skip link, ARIA roles/labels, visible focus rings, keyboard-accessible kanban moves, shared loading/empty/error primitives, and `error.tsx` / `loading.tsx` / `not-found.tsx`.
+- Docs: `docs/DEPLOYMENT.md` (pre-flight checklist, Compose/PaaS/Kubernetes, backups, Prometheus/Sentry wiring, smoke test, rollback) and `docs/TROUBLESHOOTING.md` (symptom-first runbook).
+
+### Changed
+- Lead list is paginated (25/page) and returns `X-Total-Count`; the response body remains a plain array, so existing clients are unaffected.
+- `ai_summary` analytics now aggregate in SQL instead of loading every conversation and lead into memory.
+- Lead detail and replay use eager loading, removing N+1 queries.
+- Added composite indexes on `leads(workspace_id, status)` and `leads(workspace_id, created_at)`.
+- Removed the unused `ProviderConfig` model (provider config lives in workspace settings); the migrator drops the table.
+- Test suite grew from 66 to 112 tests at 84% coverage.
+
 ## [2.0.0] — 2026-07-18
 
 ### Added

@@ -5,7 +5,9 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  API_URL,
   formatBudget,
+  getToken,
   LeadDetail,
   PRIORITIES,
   priorityColor,
@@ -14,6 +16,22 @@ import {
   statusColor,
   UserOut,
 } from "@/lib/api";
+
+/** Attachments are staff-only, so they are fetched with the auth header and
+ *  handed to the browser as an object URL rather than linked directly. */
+async function downloadAttachment(id: number, filename: string) {
+  const resp = await fetch(`${API_URL}/api/chat/attachments/${id}`, {
+    headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+  });
+  if (!resp.ok) return;
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function Markdownish({ text }: { text: string }) {
   return (
@@ -186,9 +204,16 @@ export default function LeadDetailPage() {
                 <h2 className="mb-3 font-semibold">📎 Attachments</h2>
                 <ul className="space-y-1 text-sm">
                   {lead.attachments.map((a) => (
-                    <li key={a.id} className="flex justify-between text-slate-700">
-                      <span>{a.filename}</span>
-                      <span className="text-slate-400">{(a.size / 1024).toFixed(1)} KB</span>
+                    <li key={a.id} className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={() => downloadAttachment(a.id, a.filename)}
+                        className="truncate text-left text-indigo-700 hover:underline"
+                      >
+                        {a.filename}
+                      </button>
+                      <span className="shrink-0 text-slate-400">
+                        {(a.size / 1024).toFixed(1)} KB
+                      </span>
                     </li>
                   ))}
                 </ul>

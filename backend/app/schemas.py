@@ -139,6 +139,17 @@ class NoteCreate(BaseModel):
     kind: str = Field(default="note", pattern="^(note|comment)$")
 
 
+class LeadPage(BaseModel):
+    """Paginated envelope. Reserved for a future `/api/leads/page` endpoint;
+    the existing list endpoint returns a bare array plus `X-Total-Count` to
+    stay backwards compatible."""
+
+    items: list[LeadListItem]
+    total: int
+    limit: int
+    offset: int
+
+
 class ReplayEvent(BaseModel):
     at: datetime
     type: str  # message | activity | attachment
@@ -180,6 +191,15 @@ class KBArticleOut(BaseModel):
     title: str
     content: str
     language: str
+    source_type: str = "manual"
+    source_filename: str = ""
+    version: int = 1
+    index_status: str = "pending"
+    index_error: str = ""
+    indexed_at: datetime | None = None
+    chunk_count: int = 0
+    doc_metadata: dict = {}
+    hit_count: int = 0
     updated_at: datetime
 
 
@@ -187,6 +207,45 @@ class KBArticleCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1)
     language: str = Field(default="en", max_length=8)
+
+
+class KBVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    version: int
+    title: str
+    content: str
+    created_by: str
+    created_at: datetime
+
+
+class KBStats(BaseModel):
+    total_searches: int
+    hit_rate: float
+    articles_by_status: dict[str, int]
+    indexed_chunks: int
+    top_articles: list[dict]
+    unanswered_queries: list[dict]
+
+
+# ── CRM integrations ─────────────────────────────────────────────────────
+class CRMProviderOut(BaseModel):
+    name: str
+    label: str
+    option_keys: list[str]
+
+
+class CRMSyncOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    lead_id: int
+    provider: str
+    status: str
+    external_id: str
+    external_url: str
+    attempts: int
+    error: str
+    created_at: datetime
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────

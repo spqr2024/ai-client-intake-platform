@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.db import get_db
@@ -21,7 +21,13 @@ router = APIRouter(prefix="/api/leads", tags=["leads"])
 
 
 def _get_lead(db: Session, lead_id: int, user: User) -> Lead:
-    lead = db.get(Lead, lead_id)
+    """Load a lead with its relationships eagerly — the detail and replay
+    views touch assignee and activities, which would otherwise be N+1."""
+    lead = db.scalars(
+        select(Lead)
+        .options(selectinload(Lead.assigned_to), selectinload(Lead.activities))
+        .where(Lead.id == lead_id)
+    ).first()
     if lead is None or lead.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
@@ -29,27 +35,30 @@ def _get_lead(db: Session, lead_id: int, user: User) -> Lead:
 
 @router.get("", response_model=list[LeadListItem])
 def list_leads(
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     status: str | None = Query(default=None),
     search: str | None = Query(default=None, max_length=100),
     tag: str | None = Query(default=None, max_length=60),
     priority: str | None = Query(default=None, max_length=20),
-    limit: int = Query(default=200, le=500),
+    limit: int = Query(default=50, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    query = (
-        select(Lead)
-        .where(Lead.workspace_id == user.workspace_id)
-        .order_by(Lead.created_at.desc())
-    )
+    """Paginated lead list.
+
+    The body stays a plain array (unchanged contract); the total row count is
+    returned in the `X-Total-Count` header so clients can render a pager
+    without breaking existing consumers.
+    """
+    filters = [Lead.workspace_id == user.workspace_id]
     if status:
-        query = query.where(Lead.status == status)
+        filters.append(Lead.status == status)
     if priority:
-        query = query.where(Lead.priority == priority)
+        filters.append(Lead.priority == priority)
     if search:
         pattern = f"%{search}%"
-        query = query.where(
+        filters.append(
             or_(
                 Lead.project_name.ilike(pattern),
                 Lead.client_name.ilike(pattern),
@@ -58,10 +67,33 @@ def list_leads(
                 Lead.summary.ilike(pattern),
             )
         )
-    leads = db.scalars(query.limit(limit).offset(offset)).all()
-    if tag:  # tags live in a JSON column; filter in Python (portable across DBs)
-        leads = [lead for lead in leads if tag in (lead.tags or [])]
-    return leads
+
+    if tag:
+        # Tags live in a JSON column; portable filtering happens in Python, so
+        # paginate after filtering to keep `total` truthful.
+        matching = [
+            lead
+            for lead in db.scalars(
+                select(Lead).where(*filters).order_by(Lead.created_at.desc())
+            ).all()
+            if tag in (lead.tags or [])
+        ]
+        total = len(matching)
+        items = matching[offset : offset + limit]
+    else:
+        total = db.scalar(select(func.count(Lead.id)).where(*filters)) or 0
+        items = list(
+            db.scalars(
+                select(Lead)
+                .where(*filters)
+                .order_by(Lead.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            ).all()
+        )
+
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/pipeline")
@@ -85,7 +117,11 @@ def pipeline(db: Session = Depends(get_db), user: User = Depends(get_current_use
 @router.get("/{lead_id}", response_model=LeadDetail)
 def get_lead(lead_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     lead = _get_lead(db, lead_id, user)
-    conversation = db.scalars(select(Conversation).where(Conversation.lead_id == lead.id)).first()
+    conversation = db.scalars(
+        select(Conversation)
+        .options(selectinload(Conversation.messages), selectinload(Conversation.attachments))
+        .where(Conversation.lead_id == lead.id)
+    ).first()
     detail = LeadDetail.model_validate(lead)
     if conversation:
         detail.messages = [m for m in conversation.messages]  # type: ignore[assignment]

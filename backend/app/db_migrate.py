@@ -36,8 +36,24 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "workspace_id": f"INTEGER DEFAULT {DEFAULT_WORKSPACE_ID}",
         "prompt_name": "VARCHAR(120) DEFAULT ''",
     },
-    "kb_articles": {"workspace_id": f"INTEGER DEFAULT {DEFAULT_WORKSPACE_ID}"},
+    "kb_articles": {
+        "workspace_id": f"INTEGER DEFAULT {DEFAULT_WORKSPACE_ID}",
+        "source_type": "VARCHAR(20) DEFAULT 'manual'",
+        "source_filename": "VARCHAR(255) DEFAULT ''",
+        "version": "INTEGER DEFAULT 1",
+        "index_status": "VARCHAR(20) DEFAULT 'pending'",
+        "index_error": "TEXT DEFAULT ''",
+        "indexed_at": "TIMESTAMP",
+        "chunk_count": "INTEGER DEFAULT 0",
+        "doc_metadata": "JSON DEFAULT '{}'",
+        "hit_count": "INTEGER DEFAULT 0",
+    },
+    "kb_embeddings": {"chunk_id": "INTEGER"},
 }
+
+# Tables replaced by a new schema; dropped after their data is migrated (or
+# when they were never used).
+OBSOLETE_TABLES = ("provider_configs",)
 
 
 def _existing_columns(engine: Engine, table: str) -> set[str]:
@@ -65,6 +81,18 @@ def migrate(engine: Engine) -> None:
                 if column not in existing:
                     logger.info("Adding column %s.%s", table, column)
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+
+        # 3. v2.0 stored one embedding per article; v2.1 embeds chunks. The old
+        #    rows have no chunk_id and would never match a search, so clear them
+        #    and let the reindex-on-write path rebuild.
+        if "kb_embeddings" in tables and "chunk_id" in _existing_columns(engine, "kb_embeddings"):
+            conn.execute(text("DELETE FROM kb_embeddings WHERE chunk_id IS NULL"))
+
+        # 4. Drop tables that no longer back any model.
+        for table in OBSOLETE_TABLES:
+            if table in tables:
+                logger.info("Dropping obsolete table %s", table)
+                conn.execute(text(f"DROP TABLE {table}"))
 
 
 def post_create(engine: Engine) -> None:

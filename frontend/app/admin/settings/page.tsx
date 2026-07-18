@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, NotificationOut, UserOut } from "@/lib/api";
+import { api, CRMProvider, CRMSync, NotificationOut, UserOut } from "@/lib/api";
 
 type FieldDef = {
   key: string;
@@ -49,6 +49,20 @@ const TABS: { id: string; label: string; icon: string; fields: FieldDef[] }[] = 
     ],
   },
   {
+    id: "crm",
+    label: "CRM Export",
+    icon: "🔗",
+    fields: [
+      { key: "crm_provider", label: "CRM provider", kind: "select", options: ["", "hubspot", "pipedrive", "notion", "salesforce", "webhook"], hint: "Empty = export disabled. Adapters live in services/crm.py — adding one is a single class." },
+      { key: "crm_api_key", label: "API key / token", kind: "text", hint: "Stored per workspace. For production, prefer a secret manager." },
+      { key: "crm_export_on", label: "Export leads when", kind: "select", options: ["qualified", "all", "off"], hint: "'qualified' exports only leads that pass the score threshold." },
+      { key: "crm_option_company_domain", label: "Pipedrive: company domain", kind: "text" },
+      { key: "crm_option_database_id", label: "Notion: database ID", kind: "text" },
+      { key: "crm_option_instance_url", label: "Salesforce: instance URL", kind: "text" },
+      { key: "crm_option_url", label: "Webhook: target URL", kind: "text" },
+    ],
+  },
+  {
     id: "notifications",
     label: "Notifications",
     icon: "🔔",
@@ -70,6 +84,8 @@ export default function SettingsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [users, setUsers] = useState<UserOut[]>([]);
   const [deliveries, setDeliveries] = useState<NotificationOut[]>([]);
+  const [syncs, setSyncs] = useState<CRMSync[]>([]);
+  const [providers, setProviders] = useState<CRMProvider[]>([]);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "manager" });
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -85,6 +101,8 @@ export default function SettingsPage() {
       api<NotificationOut[]>("/api/notifications/deliveries?limit=30", {}, true)
         .then(setDeliveries)
         .catch(() => {});
+      api<CRMSync[]>("/api/crm/syncs", {}, true).then(setSyncs).catch(() => {});
+      api<CRMProvider[]>("/api/crm/providers", {}, true).then(setProviders).catch(() => {});
     }
   }, [tab]);
 
@@ -296,6 +314,72 @@ export default function SettingsPage() {
               <li className="text-slate-400">💬 Slack &amp; Discord — extension points registered in the notification center (senders pending).</li>
             </ul>
           </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <h2 className="mb-3 text-sm font-semibold">
+              Registered CRM adapters ({providers.length})
+            </h2>
+            <ul className="flex flex-wrap gap-2 text-xs">
+              {providers.map((provider) => (
+                <li
+                  key={provider.name}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-600"
+                >
+                  {provider.label}
+                  {provider.option_keys.length > 0 && (
+                    <span className="text-slate-400"> · needs {provider.option_keys.join(", ")}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-slate-400">
+              Configure the active provider under the CRM Export tab.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <h2 className="mb-3 text-sm font-semibold">Recent CRM exports</h2>
+            {syncs.length === 0 && (
+              <p className="text-sm text-slate-400">
+                No exports yet. Configure a provider to start syncing qualified leads.
+              </p>
+            )}
+            <ul className="divide-y divide-slate-50 text-sm">
+              {syncs.map((sync) => (
+                <li key={sync.id} className="flex items-center justify-between gap-3 py-2">
+                  <div className="min-w-0">
+                    <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">
+                      {sync.provider}
+                    </span>
+                    <span className="text-slate-700">Lead #{sync.lead_id}</span>
+                    {sync.external_url && (
+                      <a
+                        href={sync.external_url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="ml-2 text-xs text-indigo-600 hover:underline"
+                      >
+                        open ↗
+                      </a>
+                    )}
+                    {sync.error && <div className="truncate text-xs text-rose-600">{sync.error}</div>}
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      sync.status === "synced"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : sync.status === "failed"
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {sync.status}
+                    {sync.attempts > 1 ? ` ×${sync.attempts}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           <div className="rounded-xl border border-slate-200 bg-white p-6">
             <h2 className="mb-3 text-sm font-semibold">Recent outbound deliveries</h2>
             {deliveries.length === 0 && <p className="text-sm text-slate-400">No deliveries yet.</p>}

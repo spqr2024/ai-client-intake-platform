@@ -3,7 +3,8 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)](frontend/)
-[![Tests](https://img.shields.io/badge/tests-66_passing-brightgreen)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-112_passing-brightgreen)](backend/tests/)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](backend/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 A **multi-tenant SaaS platform** that replaces static contact forms with an intelligent
@@ -17,15 +18,22 @@ with versioning**, **semantic knowledge-base retrieval**, **AI analytics** and f
 > and scales up to Postgres + Redis + your choice of OpenAI / Anthropic / Gemini /
 > OpenRouter purely through configuration.
 
+**`DEMO_MODE=true` (the default in `.env.example`) provisions a populated demo
+workspace on first start** — 12 leads across the pipeline, full chat transcripts,
+analytics, a knowledge base and notifications — so the dashboard looks alive the
+moment you clone it.
+
 ## ✨ Features
 
 | Module | Highlights |
 |---|---|
 | 💬 **AI Chat Widget** | SSE streaming, typing indicator, quick replies, file uploads, EN/UK auto-detection, white-label colors & bot name |
-| 🔀 **Dynamic Workflows** | JSON-defined flows: per-language prompts, typed answer validation, keyword branching, clarification of vague answers — editable in the admin UI |
+| 🔀 **Visual Workflow Builder** | Compose intake flows from step cards — question text per language, answer type, quick replies, branching rules, reordering — with live structural validation (unreachable steps, loops, dead ends), 5 industry templates, a step library and a dry-run simulator. JSON editing is an optional "Advanced" toggle, never a requirement |
 | 🧠 **Prompt Management** | Versioned prompts, one-click activate / rollback, offline test bench, per-workflow assignment |
 | 🤖 **Multi-AI Provider** | OpenAI, Anthropic, Gemini, OpenRouter or deterministic mock — switchable at runtime per workspace |
-| 📚 **Semantic Knowledge Base** | Embedding-provider abstraction + pluggable vector store; hybrid semantic + lexical scoring; offline hashing fallback; one-click reindex |
+| 📚 **Document Knowledge Base** | Upload **PDF / DOCX / Markdown / TXT** (or type articles); paragraph-aware chunking; embedding-provider abstraction + pluggable vector store; hybrid semantic + lexical retrieval; per-document indexing status, version history with restore, metadata, and retrieval analytics including *questions the KB could not answer* |
+| 🔗 **CRM Integrations** | Provider registry with **HubSpot, Pipedrive, Notion, Salesforce and generic-webhook** adapters; queue-backed export with retry and a per-lead sync log. Adding a CRM is one class + one `register_provider` call — no provider is referenced anywhere else |
+| 📈 **Operations** | Separate liveness/readiness probes, Prometheus `/metrics` with zero vendor dependencies, request-id correlation across structured JSON logs, and a pluggable error-reporting seam (Sentry in ~3 lines) |
 | 🧵 **AI Memory** | Short-term verbatim window + LLM-compressed rolling summary, token-budgeted, persisted per conversation |
 | 📋 **CRM v2** | Kanban pipeline with drag & drop, custom stages per workspace, tags, priorities, follow-up reminders, internal comments, activity timeline, full-text search |
 | ▶️ **Conversation Replay** | Step-by-step replay with timestamps, workflow-node metadata, KB-match scores, attachments and CRM events on one timeline |
@@ -111,6 +119,10 @@ Interactive OpenAPI docs at `/docs`. Highlights (🔒 = JWT, 👑 = admin):
 | Area | Endpoints |
 |---|---|
 | Public | `POST /api/chat/start` · `POST /api/chat/{id}/msg` · `GET /api/chat/{id}/stream` (SSE) · `POST /api/chat/{id}/upload` · `GET /api/public/branding` |
+| Operations | `GET /health` · `GET /health/live` · `GET /health/ready` · `GET /metrics` (Prometheus) · `GET /metrics/json` |
+| KB documents 👑 | `POST /api/kb/upload` (PDF/DOCX/MD/TXT) · `GET /api/kb/stats` · `GET /api/kb/{id}/versions` · `POST /api/kb/{id}/versions/{v}/restore` · `POST /api/kb/{id}/reindex` |
+| Workflow builder 👑 | `GET /api/workflows/templates` · `POST /api/workflows/analyze` · `POST /api/workflows/simulate` |
+| CRM export | `GET /api/crm/providers` · `GET /api/crm/syncs` 🔒 · `POST /api/crm/leads/{id}/export` 👑 |
 | Auth | `POST /api/auth/login` · `POST /api/auth/refresh` (rotating) · `POST /api/auth/logout` · `GET /api/auth/me` |
 | CRM 🔒 | `GET /api/leads` (status/priority/tag/search filters) · `GET /api/leads/pipeline` (kanban) · `GET/PATCH /api/leads/{id}` · `POST /api/leads/{id}/notes` · `GET /api/leads/{id}/replay` |
 | Prompts 👑 | `GET/POST /api/prompts` · `POST /api/prompts/{id}/activate|deactivate` · `POST /api/prompts/test` |
@@ -147,9 +159,30 @@ frontend/app/   # landing + /admin (kanban CRM, analytics, prompts, audit, setti
 docs/           # ARCHITECTURE.md
 ```
 
+## 📸 Screenshots
+
+Screenshots are generated locally rather than committed, so they always match
+the code in your checkout:
+
+```bash
+DEMO_MODE=true uvicorn app.main:app     # backend, seeds a populated workspace
+npm run dev                             # frontend
+```
+
+Then capture these five views (admin login: `admin@example.com` / `admin12345`):
+
+| View | URL | Shows |
+|---|---|---|
+| Landing + chat widget | `/` | Conversational intake, quick replies, streaming |
+| Kanban pipeline | `/admin` → Kanban | Drag-and-drop CRM across workspace stages |
+| Lead detail + replay | `/admin/leads/1` | AI summary, transcript, step-by-step replay |
+| AI analytics | `/admin/analytics` | Funnel, drop-off by workflow node, confidence |
+| Workflow builder | `/admin/workflows` | Visual step editor with live flow validation |
+
 ## 📚 More docs
 
-[ARCHITECTURE](docs/ARCHITECTURE.md) · [CONTRIBUTING](CONTRIBUTING.md) ·
+[ARCHITECTURE](docs/ARCHITECTURE.md) · [DEPLOYMENT](docs/DEPLOYMENT.md) ·
+[TROUBLESHOOTING](docs/TROUBLESHOOTING.md) · [CONTRIBUTING](CONTRIBUTING.md) ·
 [SECURITY](SECURITY.md) · [ROADMAP](ROADMAP.md) · [CHANGELOG](CHANGELOG.md)
 
 ## 📄 License

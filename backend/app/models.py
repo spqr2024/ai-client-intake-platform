@@ -1,7 +1,17 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -57,6 +67,12 @@ class RefreshToken(Base):
 
 class Lead(Base):
     __tablename__ = "leads"
+    # Every list/board query filters by workspace then sorts or filters on
+    # status/created_at — composite indexes keep those index-only.
+    __table_args__ = (
+        Index("ix_lead_ws_status", "workspace_id", "status"),
+        Index("ix_lead_ws_created", "workspace_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(
@@ -163,6 +179,10 @@ class Workflow(Base):
 
 
 class KnowledgeBaseArticle(Base):
+    """A KB document. Content is either typed in the UI or extracted from an
+    uploaded file (PDF/DOCX/MD/TXT). Long documents are split into
+    `KBChunk` rows, which are what actually get embedded and retrieved."""
+
     __tablename__ = "kb_articles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -172,22 +192,116 @@ class KnowledgeBaseArticle(Base):
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)
     language: Mapped[str] = mapped_column(String(8), default="en")
+
+    # Document management
+    source_type: Mapped[str] = mapped_column(String(20), default="manual")  # manual|pdf|docx|md|txt
+    source_filename: Mapped[str] = mapped_column(String(255), default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    # pending | indexing | indexed | failed | stale
+    index_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    index_error: Mapped[str] = mapped_column(Text, default="")
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    doc_metadata: Mapped[dict] = mapped_column(JSON, default=dict)  # tags, author, size, pages…
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)  # retrieval statistics
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+    chunks: Mapped[list["KBChunk"]] = relationship(
+        back_populates="article", cascade="all, delete-orphan", order_by="KBChunk.position"
+    )
+    versions: Mapped[list["KBArticleVersion"]] = relationship(
+        back_populates="article", cascade="all, delete-orphan",
+        order_by="KBArticleVersion.version.desc()",
+    )
 
-class KBEmbedding(Base):
-    """Vector index entry for a KB article (JSON-stored, brute-force cosine).
 
-    Swappable for pgvector/Chroma/etc. behind services.vectorstore.VectorStore.
-    """
+class KBChunk(Base):
+    """Retrieval unit: a passage of an article, embedded independently."""
 
-    __tablename__ = "kb_embeddings"
-    __table_args__ = (UniqueConstraint("article_id", name="uq_kb_embedding_article"),)
+    __tablename__ = "kb_chunks"
+    __table_args__ = (Index("ix_chunk_ws_article", "workspace_id", "article_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
     article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+
+    article: Mapped[KnowledgeBaseArticle] = relationship(back_populates="chunks")
+
+
+class KBArticleVersion(Base):
+    """Immutable snapshot of an article, written on every edit (rollback source)."""
+
+    __tablename__ = "kb_article_versions"
+    __table_args__ = (
+        UniqueConstraint("article_id", "version", name="uq_kb_version_article_ver"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    article: Mapped[KnowledgeBaseArticle] = relationship(back_populates="versions")
+
+
+class KBSearchLog(Base):
+    """Retrieval analytics: what visitors ask and whether the KB answered."""
+
+    __tablename__ = "kb_search_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    query: Mapped[str] = mapped_column(String(500))
+    top_article_id: Mapped[int | None] = mapped_column(nullable=True)
+    top_score: Mapped[float] = mapped_column(Float, default=0.0)
+    hit: Mapped[int] = mapped_column(Integer, default=0)  # 1 when a result passed the threshold
+    source: Mapped[str] = mapped_column(String(20), default="chat")  # chat | admin
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class CRMSyncLog(Base):
+    """Outbound CRM export attempts (provider-agnostic delivery log)."""
+
+    __tablename__ = "crm_sync_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|synced|failed|skipped
+    external_id: Mapped[str] = mapped_column(String(120), default="")
+    external_url: Mapped[str] = mapped_column(String(500), default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class KBEmbedding(Base):
+    """Vector index entry for a KB chunk (JSON-stored, brute-force cosine).
+
+    Swappable for pgvector/Chroma/etc. behind services.vectorstore.VectorStore.
+    `chunk_id` is the retrieval unit; `article_id` is kept for cheap joins and
+    cascade cleanup.
+    """
+
+    __tablename__ = "kb_embeddings"
+    __table_args__ = (
+        UniqueConstraint("chunk_id", name="uq_kb_embedding_chunk"),
+        Index("ix_embedding_ws_provider", "workspace_id", "provider", "model"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    chunk_id: Mapped[int | None] = mapped_column(ForeignKey("kb_chunks.id"), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(60), default="")
     model: Mapped[str] = mapped_column(String(120), default="")
     vector: Mapped[list] = mapped_column(JSON, default=list)
@@ -210,17 +324,6 @@ class Prompt(Base):
     is_active: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class ProviderConfig(Base):
-    __tablename__ = "provider_configs"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(60), unique=True)  # mock|openai|anthropic|gemini|openrouter
-    model: Mapped[str] = mapped_column(String(120), default="")
-    api_key: Mapped[str] = mapped_column(String(255), default="")
-    settings: Mapped[dict] = mapped_column(JSON, default=dict)
-    is_active: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class AppSetting(Base):

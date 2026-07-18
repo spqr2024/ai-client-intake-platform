@@ -5,14 +5,15 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.api.public import resolve_workspace_id
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit
 from app.db import get_db
-from app.models import Attachment, Conversation
+from app.models import Attachment, Conversation, User
 from app.schemas import (
     AttachmentOut,
     ChatMessageRequest,
@@ -121,6 +122,45 @@ ALLOWED_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".doc", ".docx",
     ".xls", ".xlsx", ".txt", ".md", ".zip", ".fig", ".sketch",
 }
+
+# Served with an explicit Content-Type allow-list; everything else downloads as
+# a binary attachment so a stored file can never execute in the browser.
+_INLINE_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+}
+
+
+@router.get("/attachments/{attachment_id}")
+def download_attachment(
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Download a chat attachment. Staff-only and workspace-scoped: uploads
+    are visitor-supplied files and must never be publicly addressable."""
+    attachment = db.get(Attachment, attachment_id)
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    conversation = db.get(Conversation, attachment.conversation_id)
+    if conversation is None or conversation.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    path = get_settings().upload_dir / attachment.stored_name
+    if not path.exists():
+        raise HTTPException(status_code=410, detail="Stored file is no longer available")
+
+    suffix = Path(attachment.filename).suffix.lower()
+    media_type = _INLINE_TYPES.get(suffix, "application/octet-stream")
+    disposition = "inline" if suffix in _INLINE_TYPES else "attachment"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=attachment.filename,
+        content_disposition_type=disposition,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/{conversation_id}/upload", response_model=AttachmentOut, status_code=201)

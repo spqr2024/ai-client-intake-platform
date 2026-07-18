@@ -99,83 +99,115 @@ def ai_summary(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     if isinstance(cached, dict):
         return cached
 
-    conversations = db.scalars(
-        select(Conversation).where(Conversation.workspace_id == workspace_id)
-    ).all()
-    total = len(conversations)
-    completed = [c for c in conversations if c.status == "Completed"]
-    abandoned = [c for c in conversations if c.status == "Abandoned"]
+    # Conversation counts by status — aggregated in SQL, not in Python.
+    status_counts = dict(
+        db.execute(
+            select(Conversation.status, func.count(Conversation.id))
+            .where(Conversation.workspace_id == workspace_id)
+            .group_by(Conversation.status)
+        ).all()
+    )
+    total = sum(status_counts.values())
+    completed_count = status_counts.get("Completed", 0)
+    abandoned_count = status_counts.get("Abandoned", 0)
 
-    # Average conversation length (messages) and duration (seconds).
-    message_counts = db.execute(
-        select(Message.conversation_id, func.count(Message.id))
+    # Average messages per conversation: two scalar aggregates, no row loading.
+    message_total = db.scalar(
+        select(func.count(Message.id))
         .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Conversation.workspace_id == workspace_id)
-        .group_by(Message.conversation_id)
+    ) or 0
+    avg_messages = round(message_total / total, 1) if total else 0.0
+
+    # Durations: only finished conversations, only the two timestamp columns.
+    duration_rows = db.execute(
+        select(Conversation.started_at, Conversation.ended_at).where(
+            Conversation.workspace_id == workspace_id, Conversation.ended_at.is_not(None)
+        )
     ).all()
-    counts_by_conv = dict(message_counts)
-    avg_messages = (
-        round(sum(counts_by_conv.values()) / len(counts_by_conv), 1) if counts_by_conv else 0.0
-    )
     durations = [
-        (c.ended_at - c.started_at).total_seconds()
-        for c in conversations
-        if c.ended_at is not None and c.started_at is not None
+        (ended - started).total_seconds()
+        for started, ended in duration_rows
+        if started is not None and ended is not None
     ]
     avg_duration = round(sum(durations) / len(durations), 1) if durations else 0.0
 
-    # Drop-off points: where do abandoned/active conversations sit?
-    dropoff: dict[str, int] = {}
-    for c in conversations:
-        if c.status != "Completed":
-            node = c.last_node or (c.state or {}).get("current_node", "") or "(start)"
-            dropoff[node] = dropoff.get(node, 0) + 1
+    # Drop-off points: group unfinished conversations by their last node.
+    dropoff_rows = db.execute(
+        select(Conversation.last_node, func.count(Conversation.id))
+        .where(Conversation.workspace_id == workspace_id, Conversation.status != "Completed")
+        .group_by(Conversation.last_node)
+    ).all()
+    dropoff = {(node or "(start)"): count for node, count in dropoff_rows}
 
-    # Most common off-script questions answered from the KB.
-    kb_messages = db.scalars(
-        select(Message)
+    # Most common client questions — bounded scan of recent user messages.
+    question_rows = db.execute(
+        select(Message.text)
         .join(Conversation, Conversation.id == Message.conversation_id)
-        .where(Conversation.workspace_id == workspace_id, Message.sender == "user")
+        .where(Conversation.workspace_id == workspace_id, Message.sender == "user",
+               Message.text.like("%?%"))
         .order_by(Message.id.desc())
-        .limit(2000)
+        .limit(1000)
     ).all()
     question_counts: dict[str, int] = {}
-    for m in kb_messages:
-        text = m.text.strip()
-        if "?" in text and len(text) >= 10:
-            key = text.lower()[:80]
+    for (text,) in question_rows:
+        stripped = (text or "").strip()
+        if len(stripped) >= 10:
+            key = stripped.lower()[:80]
             question_counts[key] = question_counts.get(key, 0) + 1
     common_questions = sorted(question_counts.items(), key=lambda i: i[1], reverse=True)[:10]
 
-    # Lead quality & AI confidence (field-capture completeness per lead).
-    leads = db.scalars(select(Lead).where(Lead.workspace_id == workspace_id)).all()
-    quality_bands = {"high (70+)": 0, "medium (40-69)": 0, "low (<40)": 0}
-    confidences: list[float] = []
-    for lead in leads:
-        if lead.score >= 70:
-            quality_bands["high (70+)"] += 1
-        elif lead.score >= 40:
-            quality_bands["medium (40-69)"] += 1
-        else:
-            quality_bands["low (<40)"] += 1
-        captured = sum(
-            1 for f in (lead.client_name, lead.client_email, lead.service, lead.timeline) if f
-        ) + (1 if lead.budget else 0)
-        confidences.append(captured / 5)
-    avg_confidence = round(sum(confidences) / len(confidences), 3) if confidences else 0.0
+    # Lead quality bands and funnel — SQL aggregates over indexed columns.
+    quality_bands = {
+        "high (70+)": db.scalar(
+            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.score >= 70)
+        ) or 0,
+        "medium (40-69)": db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.workspace_id == workspace_id, Lead.score >= 40, Lead.score < 70
+            )
+        ) or 0,
+        "low (<40)": db.scalar(
+            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, Lead.score < 40)
+        ) or 0,
+    }
+    total_leads = sum(quality_bands.values())
+
+    # AI capture confidence: share of the five core fields captured per lead,
+    # computed as five COUNTs rather than by materializing every lead.
+    captured = 0
+    for column in (Lead.client_name, Lead.client_email, Lead.service, Lead.timeline):
+        captured += db.scalar(
+            select(func.count(Lead.id)).where(Lead.workspace_id == workspace_id, column != "")
+        ) or 0
+    captured += db.scalar(
+        select(func.count(Lead.id)).where(
+            Lead.workspace_id == workspace_id, Lead.budget.is_not(None)
+        )
+    ) or 0
+    avg_confidence = round(captured / (total_leads * 5), 3) if total_leads else 0.0
 
     funnel = {
         "started": total,
-        "completed": len(completed),
-        "leads": len(leads),
-        "qualified": sum(1 for lead in leads if lead.status in ("Qualified", "In Progress", "Converted")),
-        "converted": sum(1 for lead in leads if lead.status == "Converted"),
+        "completed": completed_count,
+        "leads": total_leads,
+        "qualified": db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.workspace_id == workspace_id,
+                Lead.status.in_(["Qualified", "In Progress", "Converted"]),
+            )
+        ) or 0,
+        "converted": db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.workspace_id == workspace_id, Lead.status == "Converted"
+            )
+        ) or 0,
     }
 
     result = {
         "avg_messages_per_conversation": avg_messages,
         "avg_conversation_seconds": avg_duration,
-        "abandonment_rate": round(len(abandoned) / total, 3) if total else 0.0,
+        "abandonment_rate": round(abandoned_count / total, 3) if total else 0.0,
         "dropoff_by_node": dict(sorted(dropoff.items(), key=lambda i: i[1], reverse=True)),
         "common_questions": [{"question": q, "count": n} for q, n in common_questions],
         "lead_quality": quality_bands,

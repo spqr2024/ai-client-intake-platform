@@ -19,6 +19,7 @@ from app.models import (
     Workflow,
     utcnow,
 )
+from app.services import crm as crm_service
 from app.services import kb as kb_service
 from app.services import llm, runtime_settings
 from app.services import memory as memory_service
@@ -304,12 +305,22 @@ async def _finalize(
     db.commit()
     db.refresh(lead)
 
-    # Notifications are best-effort: never fail the chat because of them.
+    # Notifications and CRM export are best-effort: never fail the chat.
     try:
         if not abandoned or human_requested:
             await notification_service.notify_new_lead(db, lead)
     except Exception:  # noqa: BLE001 — notification failures must not break intake
         logger.exception("Notification fan-out failed for lead %s", lead.id)
+
+    try:
+        export_mode = runtime_settings.get(db, "crm_export_on", workspace_id)
+        should_export = export_mode == "all" or (
+            export_mode == "qualified" and status == "Qualified"
+        )
+        if should_export and not abandoned:
+            await crm_service.export_lead(db, lead)
+    except Exception:  # noqa: BLE001 — CRM outages must not break intake
+        logger.exception("CRM export failed to queue for lead %s", lead.id)
     return lead
 
 

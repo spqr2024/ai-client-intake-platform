@@ -179,7 +179,52 @@ export interface KBArticle {
   title: string;
   content: string;
   language: string;
+  source_type: string;
+  source_filename: string;
+  version: number;
+  index_status: string;
+  index_error: string;
+  indexed_at: string | null;
+  chunk_count: number;
+  doc_metadata: Record<string, unknown>;
+  hit_count: number;
   updated_at: string;
+}
+
+export interface KBVersion {
+  id: number;
+  version: number;
+  title: string;
+  content: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface KBStats {
+  total_searches: number;
+  hit_rate: number;
+  articles_by_status: Record<string, number>;
+  indexed_chunks: number;
+  top_articles: { id: number; title: string; hits: number }[];
+  unanswered_queries: { query: string; count: number }[];
+}
+
+export interface CRMProvider {
+  name: string;
+  label: string;
+  option_keys: string[];
+}
+
+export interface CRMSync {
+  id: number;
+  lead_id: number;
+  provider: string;
+  status: string;
+  external_id: string;
+  external_url: string;
+  attempts: number;
+  error: string;
+  created_at: string;
 }
 
 export interface PromptOut {

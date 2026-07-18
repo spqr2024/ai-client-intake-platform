@@ -16,6 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from app.core.config import get_settings
+from app.core.observability import Timer, metrics, report_error
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ _handlers: dict[str, Handler] = {}
 _memory_queue: asyncio.Queue[dict] | None = None
 _redis = None
 _worker_task: asyncio.Task | None = None
+# Strong references to in-flight delayed retries. Without this, asyncio only
+# holds a weak reference and the task can be garbage-collected before it runs,
+# silently dropping a retry.
+_pending_retries: set[asyncio.Task] = set()
 
 
 def register_handler(kind: str, handler: Handler) -> None:
@@ -62,9 +67,15 @@ def _get_memory_queue() -> asyncio.Queue:
 async def enqueue(kind: str, payload: dict, delay_seconds: float = 0) -> None:
     task = {"kind": kind, "payload": payload, "attempts": payload.pop("_attempts", 0)}
     if delay_seconds > 0:
-        asyncio.get_running_loop().call_later(
-            delay_seconds, lambda: asyncio.create_task(enqueue(kind, {**payload, "_attempts": task["attempts"]}))
-        )
+        retry_payload = {**payload, "_attempts": task["attempts"]}
+
+        async def _delayed() -> None:
+            await asyncio.sleep(delay_seconds)
+            await enqueue(kind, retry_payload)
+
+        retry_task = asyncio.create_task(_delayed())
+        _pending_retries.add(retry_task)
+        retry_task.add_done_callback(_pending_retries.discard)
         return
     redis = _get_redis()
     if redis is not None:
@@ -101,11 +112,18 @@ async def _process(task: dict) -> None:
         return
     attempts = int(task.get("attempts", 0)) + 1
     try:
-        await handler(task.get("payload", {}))
+        with Timer("task_duration_seconds", {"kind": kind}):
+            await handler(task.get("payload", {}))
+        metrics.counter("tasks_processed_total", labels={"kind": kind, "result": "success"},
+                        help_text="Background tasks processed")
     except Exception as exc:  # noqa: BLE001 — retries are the point
         if attempts >= MAX_ATTEMPTS:
             logger.error("Task %s dead-lettered after %s attempts: %s", kind, attempts, exc)
+            metrics.counter("tasks_processed_total",
+                            labels={"kind": kind, "result": "dead_letter"})
+            report_error(exc, task_kind=kind, attempts=attempts)
             return
+        metrics.counter("tasks_processed_total", labels={"kind": kind, "result": "retry"})
         delay = BACKOFF_BASE_SECONDS * (2 ** (attempts - 1))
         logger.warning("Task %s failed (attempt %s/%s), retrying in %.0fs: %s",
                        kind, attempts, MAX_ATTEMPTS, delay, exc)

@@ -15,6 +15,10 @@ class Settings(BaseSettings):
 
     app_name: str = "AI Client Intake Platform"
     debug: bool = False
+    log_level: str = "INFO"
+    # Auto-provisions a fully populated demo workspace on first start so a
+    # fresh clone looks alive immediately. Disable in production.
+    demo_mode: bool = False
 
     database_url: str = ""
     redis_url: str = ""  # e.g. redis://localhost:6379/0 — optional, graceful fallback

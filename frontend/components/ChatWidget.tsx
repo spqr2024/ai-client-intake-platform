@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_URL } from "@/lib/api";
+import { API_URL, Branding } from "@/lib/api";
 import { Lang, t } from "@/lib/i18n";
 
 interface ChatMessage {
@@ -25,7 +25,17 @@ function renderText(text: string) {
   ));
 }
 
-export default function ChatWidget({ lang }: { lang: Lang }) {
+export default function ChatWidget({
+  lang,
+  branding,
+  workspace = "default",
+}: {
+  lang: Lang;
+  branding?: Branding | null;
+  workspace?: string;
+}) {
+  const brandColor = branding?.primary_color || "#4f46e5";
+  const botName = branding?.bot_name || t(lang, "chatTitle");
   const [open, setOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -50,7 +60,7 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
       const resp = await fetch(`${API_URL}/api/chat/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: lang }),
+        body: JSON.stringify({ language: lang, workspace }),
       });
       const body = await resp.json();
       setConversationId(body.conversation_id);
@@ -61,7 +71,7 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
     } finally {
       setTyping(false);
     }
-  }, [lang]);
+  }, [lang, workspace]);
 
   useEffect(() => {
     if (open && !conversationId) startChat();
@@ -164,7 +174,8 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-white shadow-lg transition hover:bg-indigo-500"
+        style={{ backgroundColor: brandColor }}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-white shadow-lg transition hover:opacity-90"
       >
         <span className="text-xl">💬</span>
         <span className="font-medium">{t(lang, "chatOpen")}</span>
@@ -174,11 +185,11 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex h-[560px] w-[380px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-      <div className="flex items-center justify-between bg-indigo-600 px-4 py-3 text-white">
+      <div style={{ backgroundColor: brandColor }} className="flex items-center justify-between px-4 py-3 text-white">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-lg">🤖</span>
           <div>
-            <div className="text-sm font-semibold">{t(lang, "chatTitle")}</div>
+            <div className="text-sm font-semibold">{botName}</div>
             <div className="text-xs text-indigo-200">online 24/7</div>
           </div>
         </div>
@@ -196,9 +207,10 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
         {messages.map((message, i) => (
           <div key={i} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
             <div
+              style={message.sender === "user" ? { backgroundColor: brandColor } : undefined}
               className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
                 message.sender === "user"
-                  ? "rounded-br-sm bg-indigo-600 text-white"
+                  ? "rounded-br-sm text-white"
                   : "rounded-bl-sm border border-slate-200 bg-white text-slate-800"
               }`}
             >
@@ -280,7 +292,8 @@ export default function ChatWidget({ lang }: { lang: Lang }) {
         <button
           type="submit"
           disabled={!input.trim() || typing || done}
-          className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-40"
+          style={{ backgroundColor: brandColor }}
+          className="rounded-lg px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40"
         >
           ➤
         </button>

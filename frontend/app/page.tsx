@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChatWidget from "@/components/ChatWidget";
+import { api, Branding } from "@/lib/api";
 import { Lang, t } from "@/lib/i18n";
 
 const FEATURES = ["feature1", "feature2", "feature3"] as const;
@@ -10,12 +11,17 @@ const FEATURE_ICONS = ["🤖", "⚡", "📊"];
 
 export default function LandingPage() {
   const [lang, setLang] = useState<Lang>("en");
+  const [branding, setBranding] = useState<Branding | null>(null);
+
+  useEffect(() => {
+    api<Branding>("/api/public/branding?workspace=default").then(setBranding).catch(() => {});
+  }, []);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-white">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2 text-lg font-bold text-indigo-700">
-          <span>🧭</span> IntakeAI
+          <span>🧭</span> {branding?.company_name || "IntakeAI"}
         </div>
         <nav className="flex items-center gap-4 text-sm">
           <button
@@ -35,9 +41,11 @@ export default function LandingPage() {
 
       <section className="mx-auto max-w-4xl px-6 pb-20 pt-16 text-center">
         <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-5xl">
-          {t(lang, "heroTitle")}
+          {branding?.hero_title || t(lang, "heroTitle")}
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">{t(lang, "heroSubtitle")}</p>
+        <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
+          {branding?.hero_subtitle || t(lang, "heroSubtitle")}
+        </p>
         <div className="mt-8 flex justify-center">
           <span className="rounded-full bg-indigo-100 px-4 py-2 text-sm font-medium text-indigo-700">
             👉 {t(lang, "heroCta")} — {lang === "en" ? "bottom right corner" : "у правому нижньому куті"}
@@ -62,7 +70,7 @@ export default function LandingPage() {
         AI Client Intake Platform — portfolio demo. FastAPI · Next.js · Postgres · Docker
       </footer>
 
-      <ChatWidget lang={lang} />
+      <ChatWidget lang={lang} branding={branding} workspace="default" />
     </main>
   );
 }

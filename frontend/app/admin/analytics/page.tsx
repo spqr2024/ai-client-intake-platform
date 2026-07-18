@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnalyticsSummary, api } from "@/lib/api";
+import { AIAnalytics, AnalyticsSummary, api } from "@/lib/api";
 
 // Status hues validated for CVD safety (dataviz six-checks, light surface).
 // Closed/Incomplete intentionally render neutral gray: inactive states,
@@ -19,6 +19,7 @@ const SERIES_HUE = "#4f46e5"; // single-series magnitude → one hue
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsSummary | null>(null);
+  const [ai, setAi] = useState<AIAnalytics | null>(null);
   const [days, setDays] = useState(30);
   const [error, setError] = useState("");
 
@@ -26,6 +27,7 @@ export default function AnalyticsPage() {
     api<AnalyticsSummary>(`/api/analytics/summary?days=${days}`, {}, true)
       .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+    api<AIAnalytics>("/api/analytics/ai", {}, true).then(setAi).catch(() => {});
   }, [days]);
 
   if (error) return <div className="rounded-lg bg-rose-50 p-4 text-rose-700">{error}</div>;
@@ -96,6 +98,80 @@ export default function AnalyticsPage() {
           />
         </section>
       </div>
+
+      {ai && (
+        <>
+          <h2 className="mb-4 mt-10 text-xl font-bold">🤖 AI conversation analytics</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              { label: "Avg. messages / chat", value: String(ai.avg_messages_per_conversation) },
+              {
+                label: "Avg. duration",
+                value: ai.avg_conversation_seconds >= 60
+                  ? `${Math.round(ai.avg_conversation_seconds / 60)}m`
+                  : `${Math.round(ai.avg_conversation_seconds)}s`,
+              },
+              { label: "Abandonment rate", value: `${Math.round(ai.abandonment_rate * 100)}%` },
+              { label: "AI capture confidence", value: `${Math.round(ai.avg_ai_confidence * 100)}%` },
+            ].map((tile) => (
+              <div key={tile.label} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-400">{tile.label}</div>
+                <div className="mt-1 text-2xl font-bold text-slate-900">{tile.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-4 font-semibold">Conversion funnel</h3>
+              <HBarChart
+                rows={Object.entries(ai.funnel).map(([label, value]) => ({
+                  label, value, color: SERIES_HUE,
+                }))}
+                sorted={false}
+              />
+            </section>
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-4 font-semibold">Drop-off points (workflow node)</h3>
+              {Object.keys(ai.dropoff_by_node).length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-400">No drop-offs recorded 🎉</p>
+              ) : (
+                <HBarChart
+                  rows={Object.entries(ai.dropoff_by_node).map(([label, value]) => ({
+                    label, value, color: "#e11d48",
+                  }))}
+                />
+              )}
+            </section>
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-4 font-semibold">Lead quality distribution</h3>
+              <HBarChart
+                rows={Object.entries(ai.lead_quality).map(([label, value]) => ({
+                  label, value, color: SERIES_HUE,
+                }))}
+                sorted={false}
+              />
+            </section>
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="mb-4 font-semibold">Most common client questions</h3>
+              {ai.common_questions.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-400">No questions asked yet.</p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {ai.common_questions.map((q) => (
+                    <li key={q.question} className="flex items-start justify-between gap-3">
+                      <span className="text-slate-700">{q.question}</span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        ×{q.count}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -152,15 +228,20 @@ function LineChart({ points }: { points: { date: string; count: number }[] }) {
   );
 }
 
-function HBarChart({ rows }: { rows: { label: string; value: number; color: string }[] }) {
+function HBarChart({
+  rows,
+  sorted = true,
+}: {
+  rows: { label: string; value: number; color: string }[];
+  sorted?: boolean;
+}) {
   if (rows.length === 0)
     return <p className="py-8 text-center text-sm text-slate-400">No data yet.</p>;
   const max = Math.max(...rows.map((r) => r.value), 1);
+  const display = sorted ? rows.slice().sort((a, b) => b.value - a.value) : rows;
   return (
     <div className="space-y-2.5">
-      {rows
-        .slice()
-        .sort((a, b) => b.value - a.value)
+      {display
         .map((row) => (
           <div key={row.label} className="flex items-center gap-3 text-sm" title={`${row.label}: ${row.value}`}>
             <div className="w-28 shrink-0 truncate text-slate-600">{row.label}</div>

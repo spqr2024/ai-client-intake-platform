@@ -178,6 +178,7 @@ def seed() -> None:
             manager = db.scalars(select(User).where(User.role == "manager")).first()
             for item in DEMO_LEADS:
                 created = utcnow() - timedelta(days=item["days_ago"], hours=random.randint(0, 8))
+                score = item["score"]
                 lead = Lead(
                     project_name=item["project_name"],
                     client_name=item["client_name"],
@@ -186,7 +187,9 @@ def seed() -> None:
                     budget=item["budget"],
                     timeline=item["timeline"],
                     status=item["status"],
-                    score=item["score"],
+                    score=score,
+                    priority="High" if score >= 80 else "Medium" if score >= 50 else "Low",
+                    tags=(["vip"] if score >= 85 else []) + (["demo"]),
                     language=item.get("language", "en"),
                     summary=f"- **Project**: {item['project_name']}\n"
                     f"- **Budget**: {'$' + format(item['budget'], ',.0f') if item['budget'] else '—'}\n"

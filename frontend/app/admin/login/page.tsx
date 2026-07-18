@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, setToken } from "@/lib/api";
+import { api, setTokens } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,11 +16,11 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const body = await api<{ access_token: string }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      setToken(body.access_token);
+      const body = await api<{ access_token: string; refresh_token: string }>(
+        "/api/auth/login",
+        { method: "POST", body: JSON.stringify({ email, password }) }
+      );
+      setTokens(body.access_token, body.refresh_token);
       router.push("/admin");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

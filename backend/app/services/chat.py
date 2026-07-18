@@ -1,5 +1,7 @@
 """Chat orchestration: glues the workflow engine, KB retrieval, LLM layer,
-summarizer, scoring and notifications into the conversation lifecycle."""
+memory, summarizer, scoring and the notification center into the
+conversation lifecycle. Every message stores replay metadata (node,
+event type) so managers can replay conversations step by step."""
 
 import logging
 from dataclasses import dataclass, field
@@ -8,12 +10,21 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ActivityLog, Conversation, Lead, Message, Workflow, utcnow
-from app.services import email as email_service
+from app.models import (
+    DEFAULT_WORKSPACE_ID,
+    ActivityLog,
+    Conversation,
+    Lead,
+    Message,
+    Workflow,
+    utcnow,
+)
 from app.services import kb as kb_service
 from app.services import llm, runtime_settings
+from app.services import memory as memory_service
+from app.services import notifications as notification_service
+from app.services import prompts as prompt_service
 from app.services import summary as summary_service
-from app.services import telegram as telegram_service
 from app.services import workflow as wf
 from app.services.scoring import score_lead
 
@@ -59,12 +70,27 @@ def _t(key: str, lang: str, **kwargs) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
-def get_default_workflow(db: Session) -> Workflow:
-    workflow = db.scalars(select(Workflow).where(Workflow.is_default == 1)).first()
+def _add_message(
+    db: Session, conversation: Conversation, sender: str, text: str, **meta
+) -> Message:
+    message = Message(
+        conversation_id=conversation.id, sender=sender, text=text,
+        meta={"node": (conversation.state or {}).get("current_node", ""), **meta},
+    )
+    db.add(message)
+    return message
+
+
+def get_default_workflow(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> Workflow:
+    scoped = select(Workflow).where(Workflow.workspace_id == workspace_id)
+    workflow = db.scalars(scoped.where(Workflow.is_default == 1)).first()
     if workflow is None:
-        workflow = db.scalars(select(Workflow)).first()
+        workflow = db.scalars(scoped).first()
     if workflow is None:
-        workflow = Workflow(name="Default intake", is_default=1, definition=wf.DEFAULT_WORKFLOW)
+        workflow = Workflow(
+            workspace_id=workspace_id, name="Default intake", is_default=1,
+            definition=wf.DEFAULT_WORKFLOW,
+        )
         db.add(workflow)
         db.commit()
         db.refresh(workflow)
@@ -77,12 +103,15 @@ def start_conversation(
     client_email: str = "",
     language: str = "",
     workflow_id: int | None = None,
+    workspace_id: int = DEFAULT_WORKSPACE_ID,
 ) -> tuple[Conversation, ChatReply]:
     workflow = None
     if workflow_id is not None:
         workflow = db.get(Workflow, workflow_id)
+        if workflow is not None and workflow.workspace_id != workspace_id:
+            workflow = None  # tenant isolation: never run another workspace's flow
     if workflow is None:
-        workflow = get_default_workflow(db)
+        workflow = get_default_workflow(db, workspace_id)
 
     lang = language if language in ("en", "uk") else wf.detect_language(client_name)
     prefilled: dict = {}
@@ -93,69 +122,78 @@ def start_conversation(
 
     step = wf.start(workflow.definition, prefilled, lang)
     conversation = Conversation(
+        workspace_id=workspace_id,
         workflow_id=workflow.id,
         language=lang,
         client_name=client_name,
         client_email=client_email,
         state=step.state,
+        last_node=step.state.get("current_node", ""),
     )
     db.add(conversation)
     db.flush()
 
     greeting = step.reply or _t("thanks", lang, summary="")
-    db.add(Message(conversation_id=conversation.id, sender="bot", text=greeting))
+    _add_message(db, conversation, "bot", greeting, event="greeting")
     db.commit()
     return conversation, ChatReply(bot_message=greeting, quick_replies=step.quick_replies)
 
 
 async def process_message(db: Session, conversation: Conversation, text: str) -> ChatReply:
     text = text.strip()
-    db.add(Message(conversation_id=conversation.id, sender="user", text=text))
+    _add_message(db, conversation, "user", text, event="answer")
 
     # Pin the conversation language on the first meaningful user message.
     if conversation.language == "en" and wf.detect_language(text) == "uk":
         conversation.language = "uk"
     lang = conversation.language
 
-    workflow = db.get(Workflow, conversation.workflow_id) or get_default_workflow(db)
+    workflow = db.get(Workflow, conversation.workflow_id) or get_default_workflow(
+        db, conversation.workspace_id
+    )
     definition = workflow.definition
 
     # 1. Explicit human handoff.
     if any(k in text.lower() for k in HUMAN_KEYWORDS):
         reply_text = _t("human", lang)
-        db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
-        lead = await _finalize(db, conversation, definition, human_requested=True)
+        _add_message(db, conversation, "bot", reply_text, event="human_handoff")
+        lead = await _finalize(db, conversation, human_requested=True)
         return ChatReply(bot_message=reply_text, done=True, lead_id=lead.id if lead else None)
 
-    # 2. Off-script question → try the knowledge base, then re-ask.
+    # 2. Off-script question → semantic KB lookup, then re-ask.
     state = dict(conversation.state or {})
     current_node = state.get("current_node", "")
     if kb_service.looks_like_question(text) and current_node:
-        hits = kb_service.search(db, text)
+        hits = await kb_service.search(db, text, workspace_id=conversation.workspace_id)
         if hits:
-            article, _ = hits[0]
+            article, kb_score = hits[0]
             question, options = _current_prompt(definition, current_node, lang)
             reply_text = _t("kb_prefix", lang, title=article.title,
                             content=article.content[:600], question=question)
-            db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+            _add_message(db, conversation, "bot", reply_text, event="kb_answer",
+                         kb_article_id=article.id, kb_score=kb_score)
             db.commit()
             return ChatReply(bot_message=reply_text, quick_replies=options)
 
     # 3. Normal workflow advance.
     step = wf.advance(definition, state, text, lang)
     conversation.state = step.state
+    conversation.last_node = step.state.get("current_node", "") or conversation.last_node
 
     if step.done:
-        lead = await _finalize(db, conversation, definition)
+        lead = await _finalize(db, conversation, workflow=workflow)
         summary_text = lead.summary if lead else ""
         reply_text = _t("thanks", lang, summary=summary_text)
-        db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+        _add_message(db, conversation, "bot", reply_text, event="summary")
         db.commit()
         return ChatReply(bot_message=reply_text, done=True,
                          lead_id=lead.id if lead else None, summary=summary_text)
 
-    reply_text = await _maybe_rephrase(db, conversation, step.reply)
-    db.add(Message(conversation_id=conversation.id, sender="bot", text=reply_text))
+    reply_text = await _maybe_rephrase(db, conversation, workflow, step.reply)
+    _add_message(
+        db, conversation, "bot", reply_text,
+        event="clarification" if step.needs_clarification else "question",
+    )
     db.commit()
     return ChatReply(bot_message=reply_text, quick_replies=step.quick_replies)
 
@@ -167,25 +205,29 @@ def _current_prompt(definition: dict, node_id: str, lang: str) -> tuple[str, lis
     return prompt, list(options)
 
 
-async def _maybe_rephrase(db: Session, conversation: Conversation, prompt: str) -> str:
+async def _maybe_rephrase(
+    db: Session, conversation: Conversation, workflow: Workflow, prompt: str
+) -> str:
     """With a real LLM configured, let it phrase the next question naturally
-    while keeping the workflow's intent. Falls back to the template prompt."""
-    config = llm.resolve_config(runtime_settings.llm_overrides(db))
+    while keeping the workflow's intent. Context comes from the memory module
+    (short-term messages + compressed long-term summary, token-budgeted)."""
+    config = llm.resolve_config(runtime_settings.llm_overrides(db, conversation.workspace_id))
     if config.provider == "mock" or not prompt:
         return prompt
-    system = runtime_settings.get(db, "system_prompt")
-    history = [
-        {"role": "assistant" if m.sender == "bot" else "user", "content": m.text}
-        for m in conversation.messages[-6:]
-    ]
+    system = prompt_service.resolve(
+        db, conversation.workspace_id, "system", workflow.prompt_name
+    )
+    context = await memory_service.build_context(db, conversation)
     instruction = (
         f"Ask the client the following question, rephrased naturally in the "
         f"conversation's language, in one short sentence. Keep the exact meaning. "
         f"Question: {prompt}"
     )
     try:
-        result = await llm.complete(history + [{"role": "user", "content": instruction}],
-                                    config=config, system=system)
+        result = await llm.complete(
+            context.messages + [{"role": "user", "content": instruction}],
+            config=config, system=system,
+        )
         return result or prompt
     except llm.LLMError:
         return prompt
@@ -194,11 +236,12 @@ async def _maybe_rephrase(db: Session, conversation: Conversation, prompt: str) 
 async def _finalize(
     db: Session,
     conversation: Conversation,
-    definition: dict,
+    workflow: Workflow | None = None,
     human_requested: bool = False,
     abandoned: bool = False,
 ) -> Lead | None:
     """Create the Lead record, generate the summary and fan out notifications."""
+    workspace_id = conversation.workspace_id
     answers = dict((conversation.state or {}).get("answers", {}))
     if conversation.client_name and not answers.get("client_name"):
         answers["client_name"] = conversation.client_name
@@ -207,10 +250,11 @@ async def _finalize(
 
     transcript = [{"sender": m.sender, "text": m.text} for m in conversation.messages]
     summary_text = await summary_service.generate_summary(
-        db, transcript, answers, conversation.language
+        db, transcript, answers, conversation.language, workspace_id,
+        workflow_prompt_name=workflow.prompt_name if workflow else "",
     )
     score = score_lead(answers)
-    threshold = int(runtime_settings.get(db, "qualified_score_threshold") or 40)
+    threshold = int(runtime_settings.get(db, "qualified_score_threshold", workspace_id) or 40)
 
     if abandoned:
         status = "Incomplete"
@@ -219,8 +263,17 @@ async def _finalize(
     else:
         status = "New"
 
+    timeline = str(answers.get("timeline", "")).lower()
+    if score >= 80 or any(k in timeline for k in ("asap", "urgent", "терміново", "якнайшвидше")):
+        priority = "High"
+    elif score >= 50:
+        priority = "Medium"
+    else:
+        priority = "Low"
+
     budget = answers.get("budget")
     lead = Lead(
+        workspace_id=workspace_id,
         project_name=summary_service.project_name_from(answers),
         client_name=str(answers.get("client_name", ""))[:255],
         client_email=str(answers.get("client_email", ""))[:255],
@@ -230,6 +283,8 @@ async def _finalize(
         timeline=str(answers.get("timeline", ""))[:255],
         summary=summary_text,
         status=status,
+        priority=priority,
+        tags=(["human-requested"] if human_requested else []),
         score=score,
         language=conversation.language,
     )
@@ -251,11 +306,8 @@ async def _finalize(
 
     # Notifications are best-effort: never fail the chat because of them.
     try:
-        if not abandoned:
-            await telegram_service.notify_new_lead(db, lead)
-            await email_service.send_lead_emails(db, lead)
-        elif human_requested:
-            await telegram_service.notify_new_lead(db, lead)
+        if not abandoned or human_requested:
+            await notification_service.notify_new_lead(db, lead)
     except Exception:  # noqa: BLE001 — notification failures must not break intake
         logger.exception("Notification fan-out failed for lead %s", lead.id)
     return lead
@@ -273,10 +325,8 @@ async def close_stale_conversations(db: Session, max_age_hours: int = 24) -> int
     count = 0
     for conversation in stale:
         answers = (conversation.state or {}).get("answers", {})
-        workflow = db.get(Workflow, conversation.workflow_id)
-        definition = workflow.definition if workflow else wf.DEFAULT_WORKFLOW
         if any(str(v).strip() for v in answers.values()):
-            await _finalize(db, conversation, definition, abandoned=True)
+            await _finalize(db, conversation, abandoned=True)
         else:
             conversation.status = "Abandoned"
             conversation.ended_at = utcnow()

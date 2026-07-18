@@ -1,18 +1,28 @@
-"""Knowledge-base retrieval.
+"""Knowledge-base retrieval: semantic-first, lexical fallback.
 
-Pure-Python lexical retrieval tuned for FAQ-sized corpora: the score is the
-fraction of (non-stopword) query tokens covered by the article, with fuzzy
-prefix matching ("located" ~ "locations") and a bonus for title hits. Zero
-external services; the retriever can be swapped for a real vector store
-(pgvector, Chroma, Redis) behind the same `search()` signature.
+Retrieval pipeline:
+1. Embed the query via the configured EmbeddingProvider (provider-agnostic,
+   see services.embeddings) and search the VectorStore by cosine similarity.
+2. Blend in a lexical query-coverage score — cheap, language-agnostic, and a
+   safety net for exact terms (prices, product names) that embeddings smear.
+3. If no vectors exist yet (index not built, provider changed), lexical
+   scoring alone keeps the KB functional.
+
+Indexing is incremental: articles are (re)embedded on create/update through
+`index_article`, and `reindex_workspace` rebuilds after a provider switch.
 """
 
+import logging
 import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import KnowledgeBaseArticle
+from app.models import DEFAULT_WORKSPACE_ID, KnowledgeBaseArticle
+from app.services import embeddings as embedding_service
+from app.services import vectorstore
+
+logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
 
@@ -31,6 +41,10 @@ STOPWORDS = {
     "та", "або", "до", "для", "це", "є",
 }
 
+SEMANTIC_WEIGHT = 0.7
+LEXICAL_WEIGHT = 0.3
+MIN_SCORE = 0.35
+
 
 def tokenize(text: str) -> list[str]:
     return [t.lower() for t in _TOKEN_RE.findall(text or "") if len(t) > 1]
@@ -45,43 +59,89 @@ def looks_like_question(text: str) -> bool:
 
 
 def _tokens_match(a: str, b: str) -> bool:
-    """Exact match, or shared 4-char prefix for longer words — a cheap stand-in
-    for stemming that links 'located'/'locations', 'takes'/'take', etc."""
     if a == b:
         return True
     return len(a) >= 4 and len(b) >= 4 and a[:4] == b[:4]
 
 
-def _score(query_tokens: list[str], title_tokens: set[str], content_tokens: set[str]) -> float:
+def lexical_score(query: str, article: KnowledgeBaseArticle) -> float:
+    """Fraction of non-stopword query tokens covered by the article, with a
+    bonus for title hits (FAQ titles are usually the question itself)."""
+    query_tokens = [t for t in tokenize(query) if t not in STOPWORDS]
     if not query_tokens:
         return 0.0
+    title_tokens = set(tokenize(article.title))
+    content_tokens = set(tokenize(article.content))
     matched = 0.0
     for qt in query_tokens:
         in_title = any(_tokens_match(qt, t) for t in title_tokens)
         in_content = in_title or any(_tokens_match(qt, t) for t in content_tokens)
         if in_title:
-            matched += 1.2  # title hits count extra: FAQ titles are the question
+            matched += 1.2
         elif in_content:
             matched += 1.0
-    return matched / len(query_tokens)
+    return min(matched / len(query_tokens), 1.0)
 
 
-def search(
-    db: Session, query: str, limit: int = 3, min_score: float = 0.45
+async def index_article(db: Session, article: KnowledgeBaseArticle) -> None:
+    """(Re)build the vector for one article. Failures are logged, never raised:
+    lexical fallback keeps retrieval working."""
+    provider = embedding_service.get_provider()
+    try:
+        [vector] = await provider.embed([f"{article.title}\n{article.content}"])
+        vectorstore.get_store().upsert(
+            db, article.workspace_id, article.id, vector, provider.name, provider.model
+        )
+    except embedding_service.EmbeddingError as exc:
+        logger.warning("Embedding failed for article %s: %s", article.id, exc)
+
+
+def remove_article_index(db: Session, article_id: int) -> None:
+    vectorstore.get_store().remove(db, article_id)
+
+
+async def reindex_workspace(db: Session, workspace_id: int) -> int:
+    articles = db.scalars(
+        select(KnowledgeBaseArticle).where(KnowledgeBaseArticle.workspace_id == workspace_id)
+    ).all()
+    for article in articles:
+        await index_article(db, article)
+    return len(articles)
+
+
+async def search(
+    db: Session,
+    query: str,
+    workspace_id: int = DEFAULT_WORKSPACE_ID,
+    limit: int = 3,
+    min_score: float = MIN_SCORE,
 ) -> list[tuple[KnowledgeBaseArticle, float]]:
-    articles = db.scalars(select(KnowledgeBaseArticle)).all()
+    articles = db.scalars(
+        select(KnowledgeBaseArticle).where(KnowledgeBaseArticle.workspace_id == workspace_id)
+    ).all()
     if not articles:
         return []
-    query_tokens = [t for t in tokenize(query) if t not in STOPWORDS]
-    if not query_tokens:
-        return []
 
-    scored = []
+    semantic: dict[int, float] = {}
+    provider = embedding_service.get_provider()
+    try:
+        [query_vector] = await provider.embed([query])
+        hits = vectorstore.get_store().search(
+            db, workspace_id, query_vector, limit=len(articles),
+            provider=provider.name, model=provider.model,
+        )
+        semantic = {article_id: max(score, 0.0) for article_id, score in hits}
+    except embedding_service.EmbeddingError as exc:
+        logger.warning("Semantic search unavailable (%s); lexical only", exc)
+
+    scored: list[tuple[KnowledgeBaseArticle, float]] = []
     for article in articles:
-        title_tokens = set(tokenize(article.title))
-        content_tokens = set(tokenize(article.content))
-        score = _score(query_tokens, title_tokens, content_tokens)
+        lex = lexical_score(query, article)
+        if semantic:
+            score = SEMANTIC_WEIGHT * semantic.get(article.id, 0.0) + LEXICAL_WEIGHT * lex
+        else:
+            score = lex
         if score >= min_score:
             scored.append((article, round(score, 3)))
-    scored.sort(key=lambda s: s[1], reverse=True)
+    scored.sort(key=lambda item: item[1], reverse=True)
     return scored[:limit]

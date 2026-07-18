@@ -5,7 +5,9 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.models import DEFAULT_WORKSPACE_ID
 from app.services import llm, runtime_settings
+from app.services import prompts as prompt_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +68,20 @@ def rule_based_summary(answers: dict, lang: str = "en") -> str:
     return "\n".join(lines)
 
 
-async def generate_summary(db: Session, transcript: list[dict], answers: dict, lang: str) -> str:
+async def generate_summary(
+    db: Session,
+    transcript: list[dict],
+    answers: dict,
+    lang: str,
+    workspace_id: int = DEFAULT_WORKSPACE_ID,
+    workflow_prompt_name: str = "",
+) -> str:
     """Try LLM summarization; fall back to the deterministic template."""
     fallback = rule_based_summary(answers, lang)
-    config = llm.resolve_config(runtime_settings.llm_overrides(db))
+    config = llm.resolve_config(runtime_settings.llm_overrides(db, workspace_id))
     if config.provider == "mock":
         return fallback
-    prompt = runtime_settings.get(db, "summary_prompt")
+    prompt = prompt_service.resolve(db, workspace_id, "summary", workflow_prompt_name)
     conversation_text = "\n".join(f"{m['sender']}: {m['text']}" for m in transcript)
     try:
         result = await llm.complete(

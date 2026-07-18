@@ -1,10 +1,12 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+DEFAULT_WORKSPACE_ID = 1
 
 
 def utcnow() -> datetime:
@@ -15,10 +17,24 @@ def new_uuid() -> str:
     return uuid.uuid4().hex
 
 
+class Workspace(Base):
+    """Tenant root: every domain row belongs to exactly one workspace."""
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), default="My Company")
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
@@ -28,10 +44,24 @@ class User(Base):
     leads: Mapped[list["Lead"]] = relationship(back_populates="assigned_to")
 
 
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
     project_name: Mapped[str] = mapped_column(String(255), default="")
     client_name: Mapped[str] = mapped_column(String(255), default="")
     client_email: Mapped[str] = mapped_column(String(255), default="")
@@ -40,8 +70,13 @@ class Lead(Base):
     budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     timeline: Mapped[str] = mapped_column(String(255), default="")
     summary: Mapped[str] = mapped_column(Text, default="")
-    # New | Qualified | In Progress | Rejected | Converted | Closed | Incomplete
-    status: Mapped[str] = mapped_column(String(30), default="New", index=True)
+    # Status values are workspace-configurable (pipeline_statuses setting);
+    # these are the defaults: New | Qualified | In Progress | Rejected |
+    # Converted | Closed | Incomplete
+    status: Mapped[str] = mapped_column(String(60), default="New", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="Medium")  # Low|Medium|High|Urgent
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     score: Mapped[int] = mapped_column(Integer, default=0)
     language: Mapped[str] = mapped_column(String(8), default="en")
     assigned_to_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -59,13 +94,18 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id"), nullable=True)
     workflow_id: Mapped[int | None] = mapped_column(ForeignKey("workflows.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="Active")  # Active | Completed | Abandoned
     language: Mapped[str] = mapped_column(String(8), default="en")
     client_name: Mapped[str] = mapped_column(String(255), default="")
     client_email: Mapped[str] = mapped_column(String(255), default="")
-    state: Mapped[dict] = mapped_column(JSON, default=dict)  # {current_node, answers, clarify_count, ...}
+    # state: {current_node, answers, clarify_count, memory{summary,upto}, history[…]}
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_node: Mapped[str] = mapped_column(String(120), default="", index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -85,6 +125,8 @@ class Message(Base):
     conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
     sender: Mapped[str] = mapped_column(String(10))  # user | bot
     text: Mapped[str] = mapped_column(Text)
+    # Replay metadata: {node, event, kb_article_id, validation, …}
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -106,11 +148,16 @@ class Attachment(Base):
 
 class Workflow(Base):
     __tablename__ = "workflows"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_workflow_ws_name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
     is_default: Mapped[int] = mapped_column(Integer, default=0)
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    prompt_name: Mapped[str] = mapped_column(String(120), default="")  # optional Prompt assignment
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -119,11 +166,50 @@ class KnowledgeBaseArticle(Base):
     __tablename__ = "kb_articles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)
     language: Mapped[str] = mapped_column(String(8), default="en")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class KBEmbedding(Base):
+    """Vector index entry for a KB article (JSON-stored, brute-force cosine).
+
+    Swappable for pgvector/Chroma/etc. behind services.vectorstore.VectorStore.
+    """
+
+    __tablename__ = "kb_embeddings"
+    __table_args__ = (UniqueConstraint("article_id", name="uq_kb_embedding_article"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("kb_articles.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(60), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+    vector: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Prompt(Base):
+    """Versioned prompt. Rows sharing (workspace_id, name) form a version
+    chain; at most one row per name is active."""
+
+    __tablename__ = "prompts"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", "version", name="uq_prompt_ws_name_ver"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="system")  # system | summary | custom
+    content: Mapped[str] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ProviderConfig(Base):
@@ -138,20 +224,68 @@ class ProviderConfig(Base):
 
 
 class AppSetting(Base):
-    __tablename__ = "app_settings"
+    """Workspace-scoped key/value runtime settings (branding, prompts,
+    pipeline, notification templates, AI overrides)."""
 
-    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    __tablename__ = "app_settings"
+    __table_args__ = (UniqueConstraint("workspace_id", "key", name="uq_setting_ws_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    key: Mapped[str] = mapped_column(String(120), index=True)
     value: Mapped[str] = mapped_column(Text, default="")
 
 
 class ActivityLog(Base):
+    """Per-lead timeline (status changes, notes, comments, emails, telegram)."""
+
     __tablename__ = "activity_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
     actor: Mapped[str] = mapped_column(String(120), default="system")
-    action: Mapped[str] = mapped_column(String(60))  # created | status_change | note | email_sent | telegram ...
+    action: Mapped[str] = mapped_column(String(60))  # created | status_change | note | comment | email_sent | telegram ...
     detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     lead: Mapped[Lead] = relationship(back_populates="activities")
+
+
+class AuditLog(Base):
+    """Workspace-wide security & configuration audit trail."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    actor: Mapped[str] = mapped_column(String(255), default="")  # email or "system"
+    action: Mapped[str] = mapped_column(String(60), index=True)  # login | logout | role_change | ...
+    entity: Mapped[str] = mapped_column(String(60), default="")  # lead | user | prompt | workflow | kb | settings
+    entity_id: Mapped[str] = mapped_column(String(60), default="")
+    detail: Mapped[str] = mapped_column(Text, default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Notification(Base):
+    """Notification-center entry. channel=inapp rows are what users see in the
+    UI bell; email/telegram rows double as delivery logs (status/attempts)."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(20), default="inapp")  # inapp | email | telegram | slack | discord
+    event: Mapped[str] = mapped_column(String(60), default="")  # lead.created | lead.status_changed | ...
+    title: Mapped[str] = mapped_column(String(255), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str] = mapped_column(String(500), default="")
+    recipient: Mapped[str] = mapped_column(String(255), default="")  # email addr / chat id
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | sent | failed | skipped
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    read: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

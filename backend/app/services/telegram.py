@@ -1,5 +1,11 @@
-"""Telegram bot integration: new-lead notifications with inline action
-buttons, and webhook callback handling (Accept / Reject / Call, /note)."""
+"""Telegram integration.
+
+Outbound messages are dispatched via the notification center (queue-backed
+retry with exponential backoff, per-message delivery log). This module owns
+the Bot API transport, message/keyboard construction (inline actions +
+deep links into the CRM), and the secured webhook handling for manager
+actions (Accept / Reject / Call, /note command).
+"""
 
 import html
 import logging
@@ -16,15 +22,29 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://api.telegram.org"
 
 
-def _enabled(db: Session) -> bool:
+class TelegramError(Exception):
+    pass
+
+
+def enabled(db: Session, workspace_id: int) -> bool:
     settings = get_settings()
     return bool(settings.telegram_bot_token) and runtime_settings.get(
-        db, "telegram_enabled"
+        db, "telegram_enabled", workspace_id
     ).lower() != "false"
 
 
-async def _api(method: str, payload: dict) -> dict | None:
+def workspace_chat_id(db: Session, workspace_id: int) -> str:
+    """Per-workspace chat id with .env fallback."""
+    return runtime_settings.get(db, "telegram_chat_id", workspace_id) or get_settings().telegram_chat_id
+
+
+# ── Transport ─────────────────────────────────────────────────────────────
+async def _api(method: str, payload: dict, raise_on_error: bool = False) -> dict | None:
     settings = get_settings()
+    if not settings.telegram_bot_token:
+        if raise_on_error:
+            raise TelegramError("TELEGRAM_BOT_TOKEN is not configured")
+        return None
     url = f"{API_BASE}/bot{settings.telegram_bot_token}/{method}"
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -33,47 +53,46 @@ async def _api(method: str, payload: dict) -> dict | None:
             return resp.json()
     except httpx.HTTPError as exc:
         logger.error("Telegram API %s failed: %s", method, exc)
+        if raise_on_error:
+            raise TelegramError(f"{method}: {exc}") from exc
         return None
 
 
-async def notify_new_lead(db: Session, lead: Lead) -> None:
-    if not _enabled(db):
-        logger.info("Telegram disabled — skipping notification for lead %s", lead.id)
-        return
-    settings = get_settings()
+async def send_message(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+    """Raises TelegramError on failure so the queue can retry."""
+    payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    await _api("sendMessage", payload, raise_on_error=True)
+
+
+# ── Message construction ──────────────────────────────────────────────────
+def build_lead_text(lead: Lead) -> str:
     budget = f"${lead.budget:,.0f}" if lead.budget else "—"
-    text = (
+    return (
         f"🔥 <b>New Lead Received!</b>\n"
         f"📌 Service: {html.escape(lead.service or '—')}\n"
         f"💰 Budget: {html.escape(budget)}\n"
         f"⏱ Timeline: {html.escape(lead.timeline or '—')}\n"
         f"👤 Contact: {html.escape(lead.client_name or 'Anonymous')}"
         f" ({html.escape(lead.client_email or 'no email')})\n"
-        f"⭐ Score: {lead.score}/100"
+        f"⭐ Score: {lead.score}/100 · Priority: {html.escape(lead.priority)}"
     )
-    payload = {
-        "chat_id": settings.telegram_chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": {
-            "inline_keyboard": [
-                [
-                    {"text": "✅ Accept", "callback_data": f"accept:{lead.id}"},
-                    {"text": "❌ Reject", "callback_data": f"reject:{lead.id}"},
-                    {"text": "📞 Call", "callback_data": f"call:{lead.id}"},
-                ]
-            ]
-        },
-    }
-    result = await _api("sendMessage", payload)
-    if result:
-        db.add(ActivityLog(lead_id=lead.id, actor="system", action="telegram",
-                           detail="New-lead notification sent to Telegram"))
-        db.commit()
 
 
+def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
+    rows = [[
+        {"text": "✅ Accept", "callback_data": f"accept:{lead_id}"},
+        {"text": "❌ Reject", "callback_data": f"reject:{lead_id}"},
+        {"text": "📞 Call", "callback_data": f"call:{lead_id}"},
+    ]]
+    if deep_link:
+        rows.append([{"text": "🔗 Open in CRM", "url": deep_link}])
+    return {"inline_keyboard": rows}
+
+
+# ── Webhook handling (manager actions) ────────────────────────────────────
 async def handle_update(db: Session, update: dict) -> dict:
-    """Process a Telegram webhook update (callback buttons and /note command)."""
     callback = update.get("callback_query")
     if callback:
         return await _handle_callback(db, callback)

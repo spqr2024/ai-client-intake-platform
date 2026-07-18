@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFil
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.api.public import resolve_workspace_id
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit
 from app.db import get_db
@@ -49,6 +50,7 @@ def start_chat(body: ChatStartRequest, request: Request, db: Session = Depends(g
         client_email=_sanitize(body.email),
         language=body.language,
         workflow_id=body.workflow_id,
+        workspace_id=resolve_workspace_id(db, body.workspace),
     )
     return ChatStartResponse(
         conversation_id=conversation.id,

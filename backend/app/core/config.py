@@ -17,9 +17,16 @@ class Settings(BaseSettings):
     debug: bool = False
 
     database_url: str = ""
+    redis_url: str = ""  # e.g. redis://localhost:6379/0 — optional, graceful fallback
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expires_minutes: int = 60
+    jwt_expires_minutes: int = 30
+    refresh_token_days: int = 14
+    login_max_attempts: int = 5  # per email+IP within the lockout window
+    login_lockout_minutes: int = 15
+
+    # Base URL of the admin app, used for deep links in notifications.
+    public_app_url: str = "http://localhost:3000"
 
     cors_origins: str = "http://localhost:3000"
 
@@ -30,6 +37,10 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_temperature: float = 0.4
     ai_max_tokens: int = 1024
+
+    # Embeddings for semantic KB retrieval: mock | openai | gemini | openrouter
+    embedding_provider: str = "mock"
+    embedding_model: str = ""
 
     openai_api_key: str = ""
     anthropic_api_key: str = ""

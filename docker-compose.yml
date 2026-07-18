@@ -15,14 +15,27 @@ services:
     ports:
       - "5432:5432"
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379"
+
   backend:
     build: ./backend
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://intake:intake@db:5432/intake
+      REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:3000
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"

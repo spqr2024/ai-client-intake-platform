@@ -11,7 +11,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help setup dev backend frontend test test-backend test-frontend lint format \
-        check seed demo build docker-up docker-down docker-logs clean
+        check doctor doctor-send seed demo build docker-up docker-down docker-logs clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,6 +49,12 @@ check: lint test ## Everything CI runs, locally
 
 build: ## Production build of the frontend
 	cd $(FRONTEND) && npm run build
+
+doctor: ## Verify .env credentials against the live providers (read-only)
+	cd $(BACKEND) && ../$(PY) -m app.doctor
+
+doctor-send: ## Like `doctor`, but also delivers a real test message + email
+	cd $(BACKEND) && ../$(PY) -m app.doctor --send-test
 
 seed: ## Load the scripted sample dataset
 	cd $(BACKEND) && ../$(PY) -m app.seed

@@ -63,6 +63,26 @@ DEFAULTS: dict[str, str] = {
 
 EDITABLE_KEYS = set(DEFAULTS)
 
+# Settings whose default comes from .env rather than the literal in DEFAULTS,
+# so an operator can bootstrap them at deploy time without clicking through the
+# admin UI. A stored (non-empty) workspace value always wins.
+ENV_BACKED_KEYS: dict[str, str] = {
+    "crm_provider": "crm_provider",
+    "crm_api_key": "crm_api_key",
+}
+
+
+def _default(key: str) -> str:
+    env_attr = ENV_BACKED_KEYS.get(key)
+    if env_attr:
+        from app.core.config import get_settings
+
+        env_value = str(getattr(get_settings(), env_attr, "") or "")
+        if env_value:
+            return env_value
+    return DEFAULTS.get(key, "")
+
+
 # Key prefixes that accept dynamic names. The CRM provider registry is
 # extensible at runtime (a new adapter declares its own `option_keys`), so the
 # settings whitelist cannot be a fixed list without re-coupling the two.
@@ -89,7 +109,7 @@ def get_all(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict[str, 
         s.key: s.value
         for s in db.scalars(select(AppSetting).where(AppSetting.workspace_id == workspace_id)).all()
     }
-    values = {key: stored.get(key, default) for key, default in DEFAULTS.items()}
+    values = {key: stored.get(key) or _default(key) for key in DEFAULTS}
     # Surface dynamically-named keys (e.g. a new CRM adapter's options).
     values.update({key: value for key, value in stored.items() if key.startswith(DYNAMIC_KEY_PREFIXES)})
     return values
@@ -101,7 +121,7 @@ def get(db: Session, key: str, workspace_id: int = DEFAULT_WORKSPACE_ID) -> str:
     ).first()
     if setting is not None and setting.value != "":
         return setting.value
-    return DEFAULTS.get(key, "")
+    return _default(key)
 
 
 def set_many(db: Session, values: dict[str, str], workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict[str, str]:

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = {
     "openai": "text-embedding-3-small",
-    "gemini": "text-embedding-004",
+    "gemini": "gemini-embedding-001",  # text-embedding-004 is retired (404s)
     "openrouter": "openai/text-embedding-3-small",
 }
 

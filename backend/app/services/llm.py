@@ -14,11 +14,15 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Verified reachable 2026-07-19. Gemini pins the rolling "-latest" alias
+# because dated Gemini snapshots get closed to new API keys; the OpenRouter
+# default is a currently-listed free-tier model (its catalogue rotates, so
+# re-check with GET /api/v1/models if completions start 404-ing).
 DEFAULT_MODELS = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-sonnet-5",
-    "gemini": "gemini-2.0-flash",
-    "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+    "gemini": "gemini-flash-latest",
+    "openrouter": "openai/gpt-oss-20b:free",
 }
 
 

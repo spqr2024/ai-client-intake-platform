@@ -3,6 +3,47 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [2.2.0] — 2026-07-19
+
+First release configured against live provider credentials. Verifying them
+end to end surfaced two silently-broken defaults.
+
+### Fixed
+- **Default model IDs had gone stale and every real completion 404'd.** The OpenRouter
+  default (`meta-llama/llama-3.3-70b-instruct:free`) has been delisted, and the Gemini
+  default (`gemini-2.0-flash`) is closed to new API keys. Defaults are now
+  `openai/gpt-oss-20b:free` and `gemini-flash-latest` — the rolling alias, because dated
+  Gemini snapshots get retired for new keys. Both verified against live APIs.
+- **The default Gemini embedding model `text-embedding-004` no longer exists** (404);
+  replaced with `gemini-embedding-001`. Only reachable when `EMBEDDING_PROVIDER=gemini`,
+  since the offline hashing embedder is the default.
+- `runtime_settings.get_all` now resolves a stored empty string to the default, matching
+  what `get` has always done — the two disagreed for cleared values.
+
+### Added
+- **`python -m app.doctor` (`make doctor`)** — integration preflight that checks the
+  configured AI provider, embeddings, Telegram, SMTP and CRM credentials against the live
+  services, plus JWT/admin-password hygiene. Read-only by default; `--send-test`
+  additionally delivers a real Telegram message and email. Exits non-zero on failure, so
+  it works as a deploy gate. Unconfigured integrations report SKIP, not failure, keeping
+  it useful for zero-key installs.
+- **Telegram chat-id discovery** — when `TELEGRAM_CHAT_ID` is unset, the doctor lists the
+  chats that have messaged the bot so the id can be copied straight into `.env`. It also
+  fails loudly when `TELEGRAM_CHAT_ID` is set to the *bot's own* id: that value looks
+  plausible (it is the prefix of the bot token) but Telegram rejects bot-to-self sends, so
+  alerts would silently go nowhere.
+- **`CRM_PROVIDER` / `CRM_API_KEY` env bootstrap.** CRM credentials were reachable only
+  through the admin UI, which made an unattended deploy impossible. A value stored in the
+  UI still wins; only the whitelisted keys read from the environment.
+- **GitHub Pages project site** (`site/`, deployed by `.github/workflows/pages.yml`).
+  The repository URL is injected at build time from a `__REPO_URL__` placeholder, so a
+  fork's links resolve without editing the HTML.
+
+### Security
+- The test suite now explicitly blanks provider keys and CRM credentials, so a developer's
+  real `.env` cannot leak into tests — without this, the CRM export tests would have
+  written real contacts into a live HubSpot account.
+
 ## [2.1.1] — 2026-07-18
 
 Independent production audit. No features removed; all API contracts unchanged.

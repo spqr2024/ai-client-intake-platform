@@ -178,3 +178,38 @@ def test_export_requires_admin(client, auth_headers, db_session):
     assert client.post(f"/api/crm/leads/{lead.id}/export", headers=manager_headers).status_code == 403
     # Managers may still read the sync log.
     assert client.get("/api/crm/syncs", headers=manager_headers).status_code == 200
+
+
+def test_crm_settings_fall_back_to_env(client, db_session, monkeypatch):
+    """CRM credentials can be bootstrapped from .env so a deploy does not have
+    to click through the admin UI — but a stored workspace value still wins."""
+    from app.core.config import get_settings
+    from app.services import runtime_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "crm_provider", "hubspot")
+    monkeypatch.setattr(settings, "crm_api_key", "pat-from-env")
+    # Earlier tests in this module leave credentials stored; start unconfigured.
+    runtime_settings.set_many(db_session, {"crm_provider": "", "crm_api_key": ""})
+
+    assert runtime_settings.get(db_session, "crm_provider") == "hubspot"
+    assert runtime_settings.get_all(db_session)["crm_api_key"] == "pat-from-env"
+
+    runtime_settings.set_many(db_session, {"crm_api_key": "pat-from-ui"})
+    assert runtime_settings.get(db_session, "crm_api_key") == "pat-from-ui"
+
+    runtime_settings.set_many(db_session, {"crm_api_key": ""})
+    assert runtime_settings.get(db_session, "crm_api_key") == "pat-from-env"
+
+
+def test_non_env_backed_settings_are_unaffected(monkeypatch):
+    """Only whitelisted keys read from .env; every other key keeps its literal
+    default even when a same-named setting exists in the environment."""
+    from app.core.config import get_settings
+    from app.services import runtime_settings
+
+    monkeypatch.setattr(get_settings(), "crm_provider", "hubspot")
+
+    assert runtime_settings._default("crm_provider") == "hubspot"
+    assert runtime_settings._default("brand_company_name") == "IntakeAI"
+    assert runtime_settings._default("crm_option_database_id") == ""

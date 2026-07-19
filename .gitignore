@@ -20,6 +20,10 @@ npm-debug.log*
 .env
 .env.local
 .env.*.local
+# Credential hand-off documents kept in the working copy by mistake.
+*token*.docx
+*SECRETS*.docx
+~$*.docx
 
 # IDE / OS
 .vscode/

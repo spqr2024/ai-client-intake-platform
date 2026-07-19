@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@example.com"
     smtp_tls: bool = True
 
+    # Bootstrap values for the per-workspace CRM settings. The admin UI still
+    # owns them at runtime; these only seed the default when nothing is stored.
+    crm_provider: str = ""
+    crm_api_key: str = ""
+
     rate_limit_per_minute: int = 60
 
     upload_dir: Path = BASE_DIR / "uploads"

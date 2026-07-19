@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)](frontend/)
-[![Tests](https://img.shields.io/badge/tests-136_passing-brightgreen)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-138_passing-brightgreen)](backend/tests/)
 [![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](backend/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -81,7 +81,7 @@ Key design decisions:
 | **Data** | PostgreSQL (prod) · SQLite (dev, zero-config) | Same SQLAlchemy code path both ways; nothing to install to start |
 | **Cache / queue** | Redis, optional | Cluster-wide rate limits and durable retries; degrades to in-process |
 | **AI** | OpenAI · Anthropic · Gemini · OpenRouter · offline mock | Provider-agnostic behind one interface; the mock keeps tests deterministic |
-| **Tests** | pytest + coverage gate · Vitest + Testing Library | 136 tests, no API keys or network required |
+| **Tests** | pytest + coverage gate · Vitest + Testing Library | 138 tests, no API keys or network required |
 | **Quality** | Ruff (lint + format) · ESLint · tsc strict · pre-commit | Enforced in CI, not by convention |
 | **Ops** | Docker (non-root, multi-stage) · Compose · GitHub Actions · Prometheus `/metrics` | Reproducible builds, dependency audits, image scanning in CI |
 
@@ -124,7 +124,50 @@ make frontend  # web app in dev mode
 make check     # everything CI runs: lint + types + all tests
 make format    # ruff format + prettier
 make docker-up # full stack: Postgres + Redis + API + web
+make doctor    # verify .env credentials against the live providers
 ```
+
+## 🔌 Going live with real credentials
+
+The platform runs with none, so wiring providers in is an upgrade, not a
+prerequisite. Copy `.env.example` to `.env`, fill in what you have, then let the
+preflight tell you whether it actually works:
+
+```bash
+make doctor        # read-only checks against every configured provider
+make doctor-send   # also delivers one real Telegram message + email
+```
+
+```
+  + OK   JWT_SECRET      64 chars
+  + OK   AI provider     openrouter/openai/gpt-oss-20b:free replied 'OK'
+  - SKIP Embeddings      offline hashing embedder (no key needed)
+  + OK   Telegram bot    @your_intake_bot
+  ! WARN Telegram chat   TELEGRAM_CHAT_ID unset - send /start to the bot, then re-run
+  + OK   Email/SMTP      authenticated as you@example.com on smtp.gmail.com
+  + OK   CRM export      hubspot token accepted
+```
+
+Unconfigured integrations report `SKIP` rather than failing, so the command is
+meaningful on a zero-key install too. It exits non-zero only on a real failure,
+which makes it usable as a deploy gate:
+
+```bash
+python -m app.doctor || exit 1
+```
+
+Notes on individual providers:
+
+| Provider | Getting the credential |
+|---|---|
+| **Telegram** | Create a bot with [@BotFather](https://t.me/BotFather) → `TELEGRAM_BOT_TOKEN`. For `TELEGRAM_CHAT_ID`, send the bot a message and re-run `make doctor` — it lists the chats that have written to it. **`TELEGRAM_CHAT_ID` is not the bot's id** (the number before the colon in the token): a bot cannot message itself, so that value silently delivers nothing. It is the id of the person or group receiving alerts. |
+| **AI provider** | Set `AI_PROVIDER` to `openai`/`anthropic`/`gemini`/`openrouter` and the matching `*_API_KEY`. Leave `AI_MODEL` empty to use the verified default for that provider. |
+| **Email** | Gmail needs an [app password](https://support.google.com/accounts/answer/185833), not your account password; spaces in it are optional. Leave `SMTP_HOST` empty to log emails to the console instead. |
+| **CRM** | `CRM_PROVIDER=hubspot` plus a private-app token in `CRM_API_KEY`. Anything set in **Settings → Integrations** overrides the env value. |
+
+> Free-tier AI keys are rate-limited per minute and per day. If the doctor reports
+> `429`, the credential is valid — the quota is not. The deterministic mock provider
+> keeps the product fully functional in the meantime.
 
 ## 🎭 Demo mode
 
@@ -340,6 +383,7 @@ than one that names them. Full table with remediation paths in
 [Releasing](docs/RELEASING.md)
 
 **Presentation**
+[Project site](site/index.html) (published to GitHub Pages) ·
 [Case study](docs/portfolio/CASE_STUDY.md) · [Brand & visual identity](docs/BRAND.md) ·
 [Screenshot capture guide](docs/SCREENSHOTS.md)
 

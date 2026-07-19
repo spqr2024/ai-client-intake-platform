@@ -5,4 +5,4 @@ surfaced by the OpenAPI schema, `/health/live` and `/health/ready`, and must
 match the newest entry in CHANGELOG.md (CI asserts this).
 """
 
-__version__ = "2.1.1"
+__version__ = "2.2.0"

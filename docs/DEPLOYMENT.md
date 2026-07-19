@@ -23,6 +23,18 @@ production system.
 | 9 | Configure `SMTP_*` | Without it, client confirmation emails only go to the log. |
 | 10 | Decide the AI provider and set its key | `mock` is deterministic and free but does not rephrase or summarize. |
 
+Items 1, 2, 9 and 10 are machine-checkable. Run the preflight against the
+environment you are about to ship — it talks to each configured provider and
+exits non-zero if any of them reject the credential:
+
+```bash
+python -m app.doctor        # read-only; SKIP for anything unconfigured
+python -m app.doctor --send-test   # also delivers a real Telegram message + email
+```
+
+Wire it into the deploy pipeline before the release step, so a rotated key or an
+expired token fails the deploy instead of the first customer conversation.
+
 Verify after boot:
 
 ```bash

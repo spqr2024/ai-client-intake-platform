@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Client Intake Platform — conversational lead intake, qualification & CRM</title>
+<meta name="description" content="A multi-tenant SaaS platform that replaces static contact forms with an AI agent that interviews, qualifies and scores every prospect — with a built-in kanban CRM, Telegram/email notifications and semantic knowledge base." />
+<meta property="og:title" content="AI Client Intake Platform" />
+<meta property="og:description" content="An AI agent interviews prospects 24/7, qualifies and scores every lead, and hands your team a structured summary." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>" />
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f7fb;
+    --card: #ffffff;
+    --border: #e4e7ee;
+    --text: #16181d;
+    --muted: #5b6270;
+    --brand: #4f46e5;
+    --brand-soft: #eef0fe;
+    --accent: #0d9488;
+    --shadow: 0 1px 2px rgba(16, 18, 28, .05), 0 8px 24px rgba(16, 18, 28, .06);
+    --radius: 14px;
+    --maxw: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0e14;
+      --bg-soft: #12141c;
+      --card: #14171f;
+      --border: #262a36;
+      --text: #e9ebf0;
+      --muted: #9aa2b1;
+      --brand: #8b85f8;
+      --brand-soft: #1b1c34;
+      --accent: #2dd4bf;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+  section { padding: 64px 0; }
+  h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; margin: 0 0 .5em; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+  h3 { font-size: 1.05rem; }
+  p { margin: 0 0 1em; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { font-weight: 650; letter-spacing: -.02em; color: var(--text); }
+  .nav-links { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+  .nav-links a { color: var(--muted); font-size: .93rem; }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+  @media (max-width: 720px) { .nav-links a.hide-sm { display: none; } }
+
+  /* ── Hero ───────────────────────────────────────────────── */
+  .hero { padding: 88px 0 56px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--brand-soft); color: var(--brand);
+    border-radius: 999px; padding: 5px 13px;
+    font-size: .8rem; font-weight: 600; margin-bottom: 20px;
+  }
+  .hero h1 { font-size: clamp(2.1rem, 5.5vw, 3.4rem); max-width: 16ch; }
+  .lede { font-size: clamp(1.02rem, 2vw, 1.16rem); color: var(--muted); max-width: 60ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: .95rem;
+    border: 1px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn-primary { background: var(--brand); color: #fff; box-shadow: var(--shadow); }
+  .btn-ghost { border-color: var(--border); color: var(--text); background: var(--card); }
+
+  /* ── Stats ──────────────────────────────────────────────── */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 44px; }
+  .stat { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat b { display: block; font-size: 1.5rem; letter-spacing: -.03em; }
+  .stat span { color: var(--muted); font-size: .85rem; }
+
+  /* ── Cards ──────────────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow);
+  }
+  .card .ico { font-size: 1.4rem; display: block; margin-bottom: 10px; }
+  .card p { color: var(--muted); font-size: .93rem; margin: 0; }
+  .section-lede { color: var(--muted); max-width: 62ch; margin-bottom: 32px; }
+  .alt { background: var(--bg-soft); border-block: 1px solid var(--border); }
+
+  /* ── Flow diagram ───────────────────────────────────────── */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 26px; }
+  .node {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 14px; font-size: .88rem; font-weight: 550; white-space: nowrap;
+  }
+  .node.em { border-color: var(--brand); color: var(--brand); }
+  .arrow { color: var(--muted); font-size: 1.1rem; }
+
+  /* ── Code ───────────────────────────────────────────────── */
+  pre {
+    background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; overflow-x: auto; font-size: .875rem; line-height: 1.7; margin: 0;
+  }
+  pre .c { color: var(--muted); }
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
+
+  /* ── Table ──────────────────────────────────────────────── */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 520px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg-soft); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  td code { background: var(--brand-soft); color: var(--brand); padding: 2px 6px; border-radius: 5px; font-size: .85em; }
+
+  /* ── Docs list ──────────────────────────────────────────── */
+  .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .doc { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--text); }
+  .doc:hover { border-color: var(--brand); text-decoration: none; }
+  .doc b { display: block; font-size: .95rem; }
+  .doc span { color: var(--muted); font-size: .85rem; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 0; color: var(--muted); font-size: .9rem; }
+  .footer-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <span class="brand">🧭 AI Client Intake Platform</span>
+    <nav class="nav-links">
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#architecture" class="hide-sm">Architecture</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#docs" class="hide-sm">Docs</a>
+      <a href="__REPO_URL__">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="eyebrow">Open source · MIT</span>
+    <h1>Your contact form should ask better questions.</h1>
+    <p class="lede">
+      A multi-tenant SaaS platform that replaces static forms with a conversational AI agent.
+      It interviews prospects 24/7, adapts its questions, qualifies and scores every lead, and
+      hands your team a structured summary — with a built-in kanban CRM, Telegram / email / in-app
+      notifications, versioned prompts and semantic knowledge-base retrieval.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#quickstart">Get started</a>
+      <a class="btn btn-ghost" href="__REPO_URL__">View source on GitHub</a>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>136</b><span>tests passing</span></div>
+      <div class="stat"><b>84%</b><span>backend coverage</span></div>
+      <div class="stat"><b>0</b><span>API keys to run it</span></div>
+      <div class="stat"><b>5</b><span>CRM integrations</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="features">
+  <div class="wrap">
+    <h2>What's in the box</h2>
+    <p class="section-lede">
+      Every external dependency sits behind an interface with an offline fallback, so the whole
+      product works before you have a single credential.
+    </p>
+    <div class="grid">
+      <div class="card"><span class="ico">💬</span><h3>AI chat widget</h3>
+        <p>SSE streaming, typing indicator, quick replies, file uploads, EN/UK auto-detection, and white-label colors and bot name per workspace.</p></div>
+      <div class="card"><span class="ico">🔀</span><h3>Visual workflow builder</h3>
+        <p>Compose intake flows from step cards with branching rules and live structural validation — unreachable steps, loops and dead ends — plus 5 industry templates and a dry-run simulator.</p></div>
+      <div class="card"><span class="ico">🧠</span><h3>Prompt management</h3>
+        <p>Versioned prompts with one-click activate and rollback, an offline test bench, and per-workflow assignment.</p></div>
+      <div class="card"><span class="ico">🤖</span><h3>Multi-provider AI</h3>
+        <p>OpenAI, Anthropic, Gemini, OpenRouter — or the deterministic mock. Switchable at runtime per workspace, no redeploy.</p></div>
+      <div class="card"><span class="ico">📚</span><h3>Document knowledge base</h3>
+        <p>Upload PDF / DOCX / Markdown / TXT with paragraph-aware chunking, hybrid semantic + lexical retrieval, version history, and analytics on questions the KB could not answer.</p></div>
+      <div class="card"><span class="ico">🔗</span><h3>CRM integrations</h3>
+        <p>HubSpot, Pipedrive, Notion, Salesforce and generic-webhook adapters with queue-backed export, retries and a per-lead sync log.</p></div>
+      <div class="card"><span class="ico">📋</span><h3>Kanban CRM</h3>
+        <p>Drag-and-drop pipeline with custom stages, tags, priorities, follow-up reminders, internal comments, activity timeline and full-text search.</p></div>
+      <div class="card"><span class="ico">🔔</span><h3>Notification center</h3>
+        <p>In-app bell, email and Telegram behind one dispatch API, with exponential-backoff retries and a per-message delivery log.</p></div>
+      <div class="card"><span class="ico">🏢</span><h3>Multi-tenant by construction</h3>
+        <p>Isolated leads, KB, workflows, prompts, settings, branding and audit per workspace — cross-tenant reads return 404, not 403.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <h2>Architecture</h2>
+    <p class="section-lede">
+      A deterministic core with AI at the edges: the intake flow is a JSON state machine, and the
+      LLM only rephrases, summarizes and compresses. That is what makes zero-key operation and
+      unflaky tests possible.
+    </p>
+
+    <div class="flow" role="img" aria-label="Visitor and manager use the Next.js frontend, which talks REST and SSE to the FastAPI backend, which persists to Postgres or SQLite and fans out to Telegram, email and LLM providers.">
+      <span class="node">Visitor · Manager</span>
+      <span class="arrow">→</span>
+      <span class="node">Next.js 15</span>
+      <span class="arrow">→</span>
+      <span class="node em">FastAPI</span>
+      <span class="arrow">→</span>
+      <span class="node">Postgres / SQLite</span>
+      <span class="arrow">+</span>
+      <span class="node">Redis · optional</span>
+      <span class="arrow">→</span>
+      <span class="node">Telegram · Email · LLM</span>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h3>Deterministic core</h3>
+        <p>The state machine drives the interview. No API key means a fully working product, not a degraded one.</p></div>
+      <div class="card"><h3>Everything behind an interface</h3>
+        <p><code>LLMProvider</code>, <code>EmbeddingProvider</code>, <code>VectorStore</code>, <code>EmailProvider</code>, <code>CacheBackend</code>, the task queue and notification channels — each with an offline fallback and a production implementation.</p></div>
+      <div class="card"><h3>Stateless API</h3>
+        <p>Conversation state, memory and queues live in the database or Redis, so replicas scale horizontally.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Tech stack</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Layer</th><th>Choice</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><b>API</b></td><td>FastAPI · Python 3.12 · SQLAlchemy 2 · Pydantic v2</td><td>Async-native, OpenAPI for free, typed end to end</td></tr>
+          <tr><td><b>Web</b></td><td>Next.js 15 · React 19 · TypeScript strict · Tailwind v4</td><td>Server-rendered public page for SEO, client-side dashboard</td></tr>
+          <tr><td><b>Data</b></td><td>PostgreSQL (prod) · SQLite (dev)</td><td>One SQLAlchemy code path; nothing to install to start</td></tr>
+          <tr><td><b>Cache / queue</b></td><td>Redis, optional</td><td>Cluster-wide rate limits and durable retries; degrades to in-process</td></tr>
+          <tr><td><b>Tests</b></td><td>pytest + coverage gate · Vitest</td><td>136 tests, no API keys or network required</td></tr>
+          <tr><td><b>Ops</b></td><td>Docker · Compose · GitHub Actions · Prometheus <code>/metrics</code></td><td>Reproducible builds, dependency audit and image scanning in CI</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <p class="section-lede">
+      <code>DEMO_MODE=true</code> provisions a populated demo workspace on first start — 12 leads
+      across the pipeline, chat transcripts, analytics and a knowledge base — so the dashboard
+      looks alive the moment you clone it.
+    </p>
+    <div class="two-col">
+      <div>
+        <h3>Docker</h3>
+        <pre><span class="c"># Postgres + Redis + backend + frontend</span>
+git clone __REPO_URL__.git
+cd ai-client-intake-platform
+cp .env.example .env
+docker compose up --build</pre>
+      </div>
+      <div>
+        <h3>Local dev</h3>
+        <pre><span class="c"># Backend — http://localhost:8000 (Swagger at /docs)</span>
+cd backend
+python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload
+
+<span class="c"># Frontend — http://localhost:3000</span>
+cd frontend &amp;&amp; npm install &amp;&amp; npm run dev</pre>
+      </div>
+    </div>
+    <p style="margin-top:20px;color:var(--muted);font-size:.93rem">
+      Open <b>localhost:3000</b> for the chat widget, <b>/admin</b> for the dashboard.
+      Adding real credentials later? <code>make doctor</code> verifies every configured
+      integration against the live provider before you deploy.
+    </p>
+  </div>
+</section>
+
+<section class="alt" id="docs">
+  <div class="wrap">
+    <h2>Documentation</h2>
+    <div class="docs">
+      <a class="doc" href="__REPO_URL__/blob/main/README.md"><b>README</b><span>Features, setup, project tour</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/docs/ARCHITECTURE.md"><b>Architecture</b><span>Diagrams, tenancy, design rationale</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/docs/API.md"><b>API reference</b><span>Endpoints, auth, pagination</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/docs/DEPLOYMENT.md"><b>Deployment</b><span>Docker, environment, production notes</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/docs/TROUBLESHOOTING.md"><b>Troubleshooting</b><span>Common failures and fixes</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/SECURITY.md"><b>Security</b><span>Threat model and reporting</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/CONTRIBUTING.md"><b>Contributing</b><span>Invariants enforced in review</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/ROADMAP.md"><b>Roadmap</b><span>Known limitations, what's next</span></a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footer-row">
+    <span>MIT licensed · Built with FastAPI and Next.js</span>
+    <span><a href="__REPO_URL__">GitHub</a> · <a href="__REPO_URL__/issues">Issues</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

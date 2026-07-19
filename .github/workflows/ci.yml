@@ -215,4 +215,10 @@ jobs:
           test "$USER_ID" != "0"
 
       - name: Validate compose file
-        run: docker compose config --quiet
+        # The stack declares `env_file: .env`, which is gitignored and so never
+        # present on a runner. Materialise it from the template — the same first
+        # step the README gives a human — so this validates the real file rather
+        # than a weakened copy of it.
+        run: |
+          cp .env.example .env
+          docker compose config --quiet

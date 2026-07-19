@@ -32,6 +32,9 @@ credentials.docx
 ~$*.docx
 ~$*.doc
 ~$*.xlsx
+# dmeta unpacks Office files next to the original and leaves the directory
+# behind if it cannot rewrite the archive (locked file on Windows).
+*_unzipped/
 
 # IDE / OS
 .vscode/

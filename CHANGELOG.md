@@ -3,6 +3,43 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [2.3.0] — 2026-07-19
+
+Pre-publication security pass.
+
+### Security
+- **The Telegram webhook failed open.** Validation of the
+  `X-Telegram-Bot-Api-Secret-Token` header was wrapped in
+  `if settings.telegram_webhook_secret:`, so an unset secret skipped the check
+  entirely rather than refusing the request — and the secret ships empty by
+  default. Updates accepted on that route change lead status and write internal
+  notes, so any unauthenticated caller who could reach a deployed instance could
+  drive the CRM. The endpoint now **fails closed**: no configured secret means
+  every request is rejected with 403.
+- Secret comparison now uses `secrets.compare_digest`. A plain `!=` short-circuits
+  on the first differing byte, leaking the secret to an attacker who can measure
+  response latency across many attempts.
+- The webhook is now rate limited like the rest of the API; it was the one
+  unauthenticated public route with no limiter attached.
+- `.gitignore` hardened: `credentials.docx`, `*credential*.docx`, `*password*.docx`,
+  `.env.*` (with `.env.example` re-included) and Word lock files.
+
+### Added
+- **dmeta pre-commit hook** (`clear-metadata`, v0.5) strips authorship and
+  revision metadata from Office documents before they can be committed. Scoped
+  with a `files:` filter to Office extensions — the upstream hook declares
+  `pass_filenames: false` and walks the whole tree, so unscoped it runs on every
+  commit and aborts with a `PermissionError` whenever OneDrive or antivirus holds
+  a lock on any Office file.
+- Tests covering the webhook's authentication contract: missing secret, wrong
+  secret, and unconfigured-server all reject, and a rejected call leaves lead
+  state untouched.
+
+### Changed
+- **Breaking:** a deployment that relied on the webhook working without
+  `TELEGRAM_WEBHOOK_SECRET` must now set it and register it with
+  `setWebhook(secret_token=...)`.
+
 ## [2.2.0] — 2026-07-19
 
 First release configured against live provider credentials. Verifying them

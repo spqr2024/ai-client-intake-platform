@@ -20,10 +20,18 @@ npm-debug.log*
 .env
 .env.local
 .env.*.local
-# Credential hand-off documents kept in the working copy by mistake.
+.env.*
+!.env.example
+# Credential hand-off documents kept in the working copy by mistake, plus the
+# lock files Word leaves beside an open document.
+credentials.docx
+*credential*.docx
 *token*.docx
+*password*.docx
 *SECRETS*.docx
 ~$*.docx
+~$*.doc
+~$*.xlsx
 
 # IDE / OS
 .vscode/

@@ -10,6 +10,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmpdir, 'test.sqlite3').
 os.environ["AI_PROVIDER"] = "mock"
 os.environ["EMBEDDING_PROVIDER"] = "mock"
 os.environ["TELEGRAM_BOT_TOKEN"] = ""
+# The webhook fails closed, so the suite needs a known secret to exercise it.
+os.environ["TELEGRAM_WEBHOOK_SECRET"] = "test-webhook-secret"
 os.environ["SMTP_HOST"] = ""
 # A developer's real .env must never leak into the suite: these would
 # otherwise reach live providers (and CRM export would create real contacts).

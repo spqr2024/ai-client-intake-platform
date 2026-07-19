@@ -26,6 +26,23 @@ repos:
       - id: ruff-format
         files: ^backend/
 
+  # Strips authorship, revision history and editing metadata out of Office
+  # documents before they can be committed. Office files embed the author's
+  # name, organisation and last-saved-by fields, which is a privacy leak in a
+  # public repository even when the document text itself is harmless.
+  # Note: the upstream hook declares `pass_filenames: false` and walks the tree
+  # rather than the staged file list, so it rewrites Office/image files in place
+  # across the repo, not just the ones being committed.
+  - repo: https://github.com/openscilab/dmeta.git
+    rev: v0.5
+    hooks:
+      - id: clear-metadata
+        # Without this filter the hook runs on every commit and walks the whole
+        # tree; any Office file locked by OneDrive/antivirus (common on Windows)
+        # then aborts the commit with a PermissionError. Scoping it to Office
+        # files means it only runs on the commits that can actually need it.
+        files: \.(docx|doc|xlsx|xls|pptx|ppt)$
+
   - repo: local
     hooks:
       - id: eslint

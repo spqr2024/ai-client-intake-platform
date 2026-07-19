@@ -119,6 +119,18 @@ async def check_telegram(send_test: bool) -> list[Result]:
             return [(FAIL, "Telegram", f"getMe rejected the token: {me.get('description')}")]
         out.append((OK, "Telegram bot", f"@{me['result'].get('username')}"))
 
+        if s.telegram_webhook_secret:
+            out.append((OK, "Telegram webhook", "secret set — register it with setWebhook"))
+        else:
+            out.append(
+                (
+                    WARN,
+                    "Telegram webhook",
+                    "TELEGRAM_WEBHOOK_SECRET unset — the webhook fails closed and rejects "
+                    "everything (harmless if you only send alerts and never receive updates)",
+                )
+            )
+
         bot_id = str(me["result"].get("id", ""))
         if s.telegram_chat_id == bot_id:
             # Easy mistake: the bot's own id is the prefix of the bot token, so

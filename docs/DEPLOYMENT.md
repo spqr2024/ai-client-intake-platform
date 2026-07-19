@@ -195,6 +195,13 @@ curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"   # verify
 The endpoint rejects requests whose `X-Telegram-Bot-Api-Secret-Token` header
 does not match, so always set `secret_token`.
 
+`TELEGRAM_WEBHOOK_SECRET` is **required**, not optional: the route fails closed
+and returns 403 to everything while it is empty. That is deliberate — updates
+accepted here change lead status and add internal notes, so a missing secret
+must disable the endpoint rather than disable the check. Generate one with
+`python -c "import secrets; print(secrets.token_hex(32))"` and pass the same
+value to `setWebhook`. `make doctor` reports whether it is set.
+
 ---
 
 ## 9. Post-deploy smoke test

@@ -1,3 +1,8 @@
+# The Telegram webhook fails closed; conftest configures this secret so the
+# suite exercises the authenticated path.
+WEBHOOK_HEADERS = {"X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret"}
+
+
 def test_kb_crud_and_search(client, auth_headers):
     resp = client.post(
         "/api/kb",
@@ -63,7 +68,7 @@ def test_telegram_webhook_accept_flow(client, auth_headers, db_session):
             "message": {"chat": {"id": 42}},
         },
     }
-    resp = client.post("/api/webhook/telegram", json=update)
+    resp = client.post("/api/webhook/telegram", json=update, headers=WEBHOOK_HEADERS)
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
@@ -87,7 +92,7 @@ def test_telegram_note_command(client, auth_headers, db_session):
             "text": f"/note {lead.id} Very promising, follow up Monday",
         },
     }
-    resp = client.post("/api/webhook/telegram", json=update)
+    resp = client.post("/api/webhook/telegram", json=update, headers=WEBHOOK_HEADERS)
     assert resp.status_code == 200
 
     detail = client.get(f"/api/leads/{lead.id}", headers=auth_headers).json()
@@ -96,6 +101,49 @@ def test_telegram_note_command(client, auth_headers, db_session):
 
 def test_telegram_webhook_bad_callback(client):
     update = {"update_id": 3, "callback_query": {"id": "cb2", "data": "accept:not-a-number"}}
-    resp = client.post("/api/webhook/telegram", json=update)
+    resp = client.post("/api/webhook/telegram", json=update, headers=WEBHOOK_HEADERS)
     assert resp.status_code == 200
     assert resp.json()["ok"] is False
+
+
+def test_telegram_webhook_rejects_missing_and_wrong_secret(client, db_session):
+    """The webhook mutates lead state, so it must reject anyone who cannot prove
+    Telegram sent the update."""
+    from app.models import Lead
+
+    lead = Lead(project_name="TG auth test", status="New")
+    db_session.add(lead)
+    db_session.commit()
+    db_session.refresh(lead)
+
+    update = {
+        "update_id": 4,
+        "callback_query": {
+            "id": "cb3",
+            "from": {"first_name": "Attacker"},
+            "data": f"accept:{lead.id}",
+            "message": {"chat": {"id": 42}},
+        },
+    }
+
+    assert client.post("/api/webhook/telegram", json=update).status_code == 403
+    bad = {"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"}
+    assert client.post("/api/webhook/telegram", json=update, headers=bad).status_code == 403
+
+    # The rejected calls must not have touched the lead.
+    db_session.refresh(lead)
+    assert lead.status == "New"
+
+
+def test_telegram_webhook_fails_closed_when_unconfigured(client, monkeypatch):
+    """An unset secret disables the endpoint rather than disabling the check —
+    a misconfigured deploy must not become world-writable."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "telegram_webhook_secret", "")
+    update = {"update_id": 5, "message": {"chat": {"id": 42}, "text": "/note 1 hello"}}
+
+    assert client.post("/api/webhook/telegram", json=update).status_code == 403
+    # Not even a caller who guesses the (empty) value gets in.
+    empty = {"X-Telegram-Bot-Api-Secret-Token": ""}
+    assert client.post("/api/webhook/telegram", json=update, headers=empty).status_code == 403

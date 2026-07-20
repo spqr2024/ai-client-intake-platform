@@ -3,159 +3,327 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AI Client Intake Platform — conversational lead intake, qualification & CRM</title>
+<title>AI Client Intake Platform — conversational lead intake, qualification &amp; CRM</title>
 <meta name="description" content="A multi-tenant SaaS platform that replaces static contact forms with an AI agent that interviews, qualifies and scores every prospect — with a built-in kanban CRM, Telegram/email notifications and semantic knowledge base." />
+<meta name="theme-color" content="#060b18" />
 <meta property="og:title" content="AI Client Intake Platform" />
 <meta property="og:description" content="An AI agent interviews prospects 24/7, qualifies and scores every lead, and hands your team a structured summary." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>" />
 <style>
-  :root {
-    --bg: #ffffff;
-    --bg-soft: #f6f7fb;
-    --card: #ffffff;
-    --border: #e4e7ee;
-    --text: #16181d;
-    --muted: #5b6270;
-    --brand: #4f46e5;
-    --brand-soft: #eef0fe;
-    --accent: #0d9488;
-    --shadow: 0 1px 2px rgba(16, 18, 28, .05), 0 8px 24px rgba(16, 18, 28, .06);
-    --radius: 14px;
-    --maxw: 1080px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0c0e14;
-      --bg-soft: #12141c;
-      --card: #14171f;
-      --border: #262a36;
-      --text: #e9ebf0;
-      --muted: #9aa2b1;
-      --brand: #8b85f8;
-      --brand-soft: #1b1c34;
-      --accent: #2dd4bf;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
-    }
+  :root{
+    --bg:#060b18;
+    --card:#0d1528;
+    --card-hi:#111c35;
+    --border:#1b2a4a;
+    --text:#e8eeff;
+    --muted:#8ea3c9;
+    /* Lightened from #6b7fa3, which measured 4.49:1 on --card and missed the
+       4.5:1 AA floor by a hair. Uppercase micro-labels use this. */
+    --dim:#7286ac;
+
+    /* Neon accents. Cyan is the primary signal, indigo the structural one,
+       violet reserved for emphasis so it stays meaningful. */
+    --neon:#22d3ee;
+    --neon-soft:#67e8f9;
+    --indigo:#818cf8;
+    --violet:#c084fc;
+    --glow:rgba(34,211,238,.35);
+
+    --radius:14px;
+    --maxw:1100px;
   }
 
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:72px}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
   }
-  a { color: var(--brand); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
-  section { padding: 64px 0; }
-  h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; margin: 0 0 .5em; }
-  h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
-  h3 { font-size: 1.05rem; }
-  p { margin: 0 0 1em; }
-  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 
-  /* ── Header ─────────────────────────────────────────────── */
-  header {
-    position: sticky; top: 0; z-index: 20;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--border);
+  /* Ambient glow behind the hero. Fixed + pointer-events:none so it never
+     interferes with scrolling or selection. */
+  body::before{
+    content:"";
+    position:fixed;
+    inset:-30% -10% auto -10%;
+    height:70vh;
+    background:
+      radial-gradient(50% 55% at 20% 30%,rgba(34,211,238,.13),transparent 70%),
+      radial-gradient(45% 50% at 78% 20%,rgba(129,140,248,.14),transparent 70%),
+      radial-gradient(35% 45% at 50% 60%,rgba(192,132,252,.07),transparent 70%);
+    filter:blur(20px);
+    pointer-events:none;
+    z-index:0;
   }
-  .nav { display: flex; align-items: center; gap: 24px; height: 60px; }
-  .brand { font-weight: 650; letter-spacing: -.02em; color: var(--text); }
-  .nav-links { margin-left: auto; display: flex; gap: 20px; align-items: center; }
-  .nav-links a { color: var(--muted); font-size: .93rem; }
-  .nav-links a:hover { color: var(--text); text-decoration: none; }
-  @media (max-width: 720px) { .nav-links a.hide-sm { display: none; } }
 
-  /* ── Hero ───────────────────────────────────────────────── */
-  .hero { padding: 88px 0 56px; }
-  .eyebrow {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--brand-soft); color: var(--brand);
-    border-radius: 999px; padding: 5px 13px;
-    font-size: .8rem; font-weight: 600; margin-bottom: 20px;
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;position:relative;z-index:1}
+  a{color:var(--neon-soft);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.88em;
+    background:rgba(34,211,238,.08);
+    border:1px solid rgba(34,211,238,.18);
+    color:var(--neon-soft);
+    padding:.12em .42em;
+    border-radius:6px;
   }
-  .hero h1 { font-size: clamp(2.1rem, 5.5vw, 3.4rem); max-width: 16ch; }
-  .lede { font-size: clamp(1.02rem, 2vw, 1.16rem); color: var(--muted); max-width: 60ch; }
-  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: .95rem;
-    border: 1px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header{
+    position:sticky;top:0;z-index:50;
+    background:rgba(6,11,24,.78);
+    backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
   }
-  .btn:hover { text-decoration: none; transform: translateY(-1px); }
-  .btn-primary { background: var(--brand); color: #fff; box-shadow: var(--shadow); }
-  .btn-ghost { border-color: var(--border); color: var(--text); background: var(--card); }
-
-  /* ── Stats ──────────────────────────────────────────────── */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 44px; }
-  .stat { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
-  .stat b { display: block; font-size: 1.5rem; letter-spacing: -.03em; }
-  .stat span { color: var(--muted); font-size: .85rem; }
-
-  /* ── Cards ──────────────────────────────────────────────── */
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 16px; }
-  .card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow);
+  .nav{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 22px}
+  .brand{font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+  .brand span{
+    background:linear-gradient(90deg,var(--neon),var(--indigo));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
   }
-  .card .ico { font-size: 1.4rem; display: block; margin-bottom: 10px; }
-  .card p { color: var(--muted); font-size: .93rem; margin: 0; }
-  .section-lede { color: var(--muted); max-width: 62ch; margin-bottom: 32px; }
-  .alt { background: var(--bg-soft); border-block: 1px solid var(--border); }
-
-  /* ── Flow diagram ───────────────────────────────────────── */
-  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 26px; }
-  .node {
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 9px 14px; font-size: .88rem; font-weight: 550; white-space: nowrap;
+  .nav-links{display:flex;align-items:center;gap:22px;font-size:.92rem;flex-wrap:wrap}
+  .nav-links a{color:var(--muted);text-decoration:none;transition:color .15s}
+  .nav-links a:hover{color:var(--neon);text-decoration:none}
+  .nav-links a.gh{
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:5px 12px;
   }
-  .node.em { border-color: var(--brand); color: var(--brand); }
-  .arrow { color: var(--muted); font-size: 1.1rem; }
+  .nav-links a.gh:hover{border-color:var(--neon);color:var(--neon);box-shadow:0 0 16px -4px var(--glow)}
 
-  /* ── Code ───────────────────────────────────────────────── */
-  pre {
-    background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 18px 20px; overflow-x: auto; font-size: .875rem; line-height: 1.7; margin: 0;
+  /* ── Sections ───────────────────────────────────────────────────────── */
+  section{padding:82px 0;border-bottom:1px solid rgba(27,42,74,.55)}
+  section.alt{background:linear-gradient(180deg,rgba(10,17,34,.7),rgba(10,17,34,.25))}
+  h1,h2,h3{line-height:1.2;letter-spacing:-.02em;margin:0}
+  h2{font-size:clamp(1.55rem,3.4vw,2.1rem);margin-bottom:12px}
+  h3{font-size:1.02rem;margin-bottom:7px}
+  .section-lede{color:var(--muted);max-width:74ch;margin:0 0 34px}
+
+  .eyebrow{
+    display:inline-block;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--neon);
+    border:1px solid rgba(34,211,238,.3);
+    background:rgba(34,211,238,.06);
+    border-radius:999px;
+    padding:5px 13px;
+    margin-bottom:20px;
   }
-  pre .c { color: var(--muted); }
-  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
 
-  /* ── Table ──────────────────────────────────────────────── */
-  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
-  table { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 520px; }
-  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  th { background: var(--bg-soft); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  tr:last-child td { border-bottom: none; }
-  td code { background: var(--brand-soft); color: var(--brand); padding: 2px 6px; border-radius: 5px; font-size: .85em; }
+  /* ── Hero ───────────────────────────────────────────────────────────── */
+  .hero{padding:96px 0 78px;border-bottom:1px solid rgba(27,42,74,.55)}
+  .hero h1{
+    font-size:clamp(2.05rem,5.6vw,3.4rem);
+    max-width:19ch;
+    margin-bottom:20px;
+  }
+  .hero h1 em{
+    font-style:normal;
+    background:linear-gradient(90deg,var(--neon) 10%,var(--indigo) 60%,var(--violet));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .lede{color:var(--muted);font-size:1.06rem;max-width:66ch;margin:0 0 30px}
 
-  /* ── Docs list ──────────────────────────────────────────── */
-  .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
-  .doc { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--text); }
-  .doc:hover { border-color: var(--brand); text-decoration: none; }
-  .doc b { display: block; font-size: .95rem; }
-  .doc span { color: var(--muted); font-size: .85rem; }
+  .cta{display:flex;gap:13px;flex-wrap:wrap;margin-bottom:52px}
+  .btn{
+    display:inline-block;border-radius:10px;padding:11px 22px;
+    font-weight:600;font-size:.94rem;text-decoration:none;
+    transition:transform .14s,box-shadow .2s,border-color .2s,background .2s;
+  }
+  .btn:hover{transform:translateY(-2px);text-decoration:none}
+  .btn-primary{
+    background:linear-gradient(95deg,var(--neon),var(--indigo));
+    color:#04121b;
+    box-shadow:0 0 26px -6px var(--glow);
+  }
+  .btn-primary:hover{box-shadow:0 0 34px -4px var(--glow)}
+  .btn-ghost{border:1px solid var(--border);color:var(--text);background:rgba(13,21,40,.6)}
+  .btn-ghost:hover{border-color:var(--neon);color:var(--neon)}
 
-  footer { border-top: 1px solid var(--border); padding: 32px 0; color: var(--muted); font-size: .9rem; }
-  .footer-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
+  .stat{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:18px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+  /* Neon top-edge on each tile, brightest on the first. */
+  .stat::after{
+    content:"";position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,var(--neon),transparent);
+    opacity:.5;
+  }
+  .stat b{
+    display:block;font-size:1.75rem;line-height:1.15;
+    color:var(--neon);
+    text-shadow:0 0 22px var(--glow);
+  }
+  .stat span{
+    display:block;margin-top:3px;
+    font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+  }
+
+  /* ── Cards ──────────────────────────────────────────────────────────── */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px}
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:22px;
+    transition:border-color .2s,box-shadow .2s,background .2s,transform .16s;
+  }
+  .card:hover{
+    border-color:rgba(34,211,238,.42);
+    background:var(--card-hi);
+    box-shadow:0 0 30px -12px var(--glow);
+    transform:translateY(-2px);
+  }
+  .card p{color:var(--muted);font-size:.92rem;margin:0}
+  .ico{font-size:1.4rem;display:block;margin-bottom:9px}
+
+  /* ── Architecture flow ──────────────────────────────────────────────── */
+  .flow{
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    padding:22px;margin-bottom:30px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+  }
+  .node{
+    border:1px solid var(--border);
+    background:rgba(6,11,24,.7);
+    border-radius:9px;padding:8px 13px;
+    font-size:.85rem;white-space:nowrap;
+  }
+  .node.em{
+    border-color:rgba(34,211,238,.5);
+    color:var(--neon);
+    box-shadow:0 0 20px -8px var(--glow);
+  }
+  .arrow{color:var(--indigo);font-size:1rem}
+
+  /* ── Numbered story list ────────────────────────────────────────────── */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}
+  .step{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius);padding:22px;
+  }
+  .step .n{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:.78rem;color:var(--indigo);letter-spacing:.1em;display:block;margin-bottom:8px;
+  }
+  .step p{color:var(--muted);font-size:.92rem;margin:0}
+
+  /* ── Table ──────────────────────────────────────────────────────────── */
+  .table-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:.92rem}
+  th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--border)}
+  th{
+    background:rgba(6,11,24,.8);
+    font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+    font-weight:600;
+  }
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(34,211,238,.035)}
+  td b{color:var(--text)}
+  td:last-child{color:var(--muted)}
+
+  /* ── Code blocks ────────────────────────────────────────────────────── */
+  .two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:18px}
+  pre{
+    background:#040914;
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:17px;margin:0;
+    overflow-x:auto;
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.845rem;line-height:1.7;
+    color:#cfe0ff;
+  }
+  pre .c{color:var(--dim)}
+
+  /* ── Docs grid ──────────────────────────────────────────────────────── */
+  .docs{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:13px}
+  .doc{
+    display:block;padding:17px 19px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    text-decoration:none;color:var(--text);
+    transition:border-color .2s,box-shadow .2s,transform .16s,background .2s;
+  }
+  .doc:hover{
+    border-color:rgba(34,211,238,.42);
+    background:var(--card-hi);
+    box-shadow:0 0 26px -12px var(--glow);
+    transform:translateY(-2px);
+    text-decoration:none;
+  }
+  .doc b{display:block;margin-bottom:3px;color:var(--neon-soft)}
+  .doc span{display:block;font-size:.85rem;color:var(--muted)}
+
+  /* ── Footer ─────────────────────────────────────────────────────────── */
+  footer{padding:52px 0 40px;color:var(--muted);font-size:.9rem;border-bottom:none}
+  .footer-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:28px;margin-bottom:34px;
+  }
+  .footer-grid h4{
+    margin:0 0 11px;font-size:.72rem;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--dim);font-weight:600;
+  }
+  .footer-grid ul{list-style:none;margin:0;padding:0}
+  .footer-grid li{margin-bottom:7px}
+  .footer-grid a{color:var(--muted);text-decoration:none}
+  .footer-grid a:hover{color:var(--neon);text-decoration:none}
+  .footer-bot{
+    border-top:1px solid var(--border);padding-top:22px;
+    display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    font-size:.85rem;color:var(--dim);
+  }
+
+  /* Visible keyboard focus — the neon palette must not cost accessibility. */
+  a:focus-visible,.btn:focus-visible{
+    outline:2px solid var(--neon);outline-offset:3px;border-radius:6px;
+  }
+
+  @media (max-width:720px){
+    .hide-sm{display:none}
+    section{padding:60px 0}
+    .hero{padding:70px 0 56px}
+  }
+  /* Respect users who ask for less motion. */
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *{transition:none !important}
+    .btn:hover,.card:hover,.doc:hover{transform:none}
+  }
 </style>
 </head>
 <body>
 
 <header>
   <div class="wrap nav">
-    <span class="brand">🧭 AI Client Intake Platform</span>
-    <nav class="nav-links">
+    <span class="brand">🧭 <span>AI Client Intake Platform</span></span>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#about" class="hide-sm">About</a>
       <a href="#features" class="hide-sm">Features</a>
       <a href="#architecture" class="hide-sm">Architecture</a>
+      <a href="#stack" class="hide-sm">Stack</a>
       <a href="#quickstart">Quick start</a>
+      <a href="#story" class="hide-sm">Story</a>
       <a href="#docs" class="hide-sm">Docs</a>
-      <a href="__REPO_URL__">GitHub ↗</a>
+      <a class="gh" href="__REPO_URL__">GitHub ↗</a>
     </nav>
   </div>
 </header>
@@ -163,7 +331,7 @@
 <section class="hero">
   <div class="wrap">
     <span class="eyebrow">Open source · MIT</span>
-    <h1>Your contact form should ask better questions.</h1>
+    <h1>Your contact form should <em>ask better questions</em>.</h1>
     <p class="lede">
       A multi-tenant SaaS platform that replaces static forms with a conversational AI agent.
       It interviews prospects 24/7, adapts its questions, qualifies and scores every lead, and
@@ -176,15 +344,34 @@
     </div>
 
     <div class="stats">
-      <div class="stat"><b>136</b><span>tests passing</span></div>
-      <div class="stat"><b>84%</b><span>backend coverage</span></div>
+      <div class="stat"><b>194</b><span>tests passing</span></div>
+      <div class="stat"><b>80%</b><span>backend coverage</span></div>
       <div class="stat"><b>0</b><span>API keys to run it</span></div>
       <div class="stat"><b>5</b><span>CRM integrations</span></div>
     </div>
   </div>
 </section>
 
-<section class="alt" id="features">
+<section class="alt" id="about">
+  <div class="wrap">
+    <h2>The problem</h2>
+    <p class="section-lede">
+      A contact form collects a name, an email and a paragraph of free text. Then someone spends a
+      week of evenings emailing back and forth to find out what the project actually is, what the
+      budget is, and whether it is worth a call at all.
+    </p>
+    <div class="grid">
+      <div class="card"><span class="ico">📭</span><h3>Forms do not ask follow-ups</h3>
+        <p>"I need a website" and "I need a 40-page storefront with Stripe by March" arrive in the same box, indistinguishable until someone reads and replies.</p></div>
+      <div class="card"><span class="ico">🌙</span><h3>Prospects arrive off-hours</h3>
+        <p>The gap between an enquiry and the first reply is when interest cools. An agent that answers immediately does not have that gap.</p></div>
+      <div class="card"><span class="ico">🧾</span><h3>Qualification is manual</h3>
+        <p>Budget, timeline, scope and urgency get re-derived by hand for every lead — inconsistently, and never in a form the pipeline can sort.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
   <div class="wrap">
     <h2>What's in the box</h2>
     <p class="section-lede">
@@ -214,7 +401,7 @@
   </div>
 </section>
 
-<section id="architecture">
+<section class="alt" id="architecture">
   <div class="wrap">
     <h2>Architecture</h2>
     <p class="section-lede">
@@ -248,9 +435,13 @@
   </div>
 </section>
 
-<section class="alt">
+<section id="stack">
   <div class="wrap">
     <h2>Tech stack</h2>
+    <p class="section-lede">
+      Chosen so the project runs on a laptop with no accounts, and on managed infrastructure
+      without a rewrite.
+    </p>
     <div class="table-scroll">
       <table>
         <thead><tr><th>Layer</th><th>Choice</th><th>Why</th></tr></thead>
@@ -259,7 +450,7 @@
           <tr><td><b>Web</b></td><td>Next.js 15 · React 19 · TypeScript strict · Tailwind v4</td><td>Server-rendered public page for SEO, client-side dashboard</td></tr>
           <tr><td><b>Data</b></td><td>PostgreSQL (prod) · SQLite (dev)</td><td>One SQLAlchemy code path; nothing to install to start</td></tr>
           <tr><td><b>Cache / queue</b></td><td>Redis, optional</td><td>Cluster-wide rate limits and durable retries; degrades to in-process</td></tr>
-          <tr><td><b>Tests</b></td><td>pytest + coverage gate · Vitest</td><td>136 tests, no API keys or network required</td></tr>
+          <tr><td><b>Tests</b></td><td>pytest + coverage gate · Vitest</td><td>194 tests, no API keys or network required</td></tr>
           <tr><td><b>Ops</b></td><td>Docker · Compose · GitHub Actions · Prometheus <code>/metrics</code></td><td>Reproducible builds, dependency audit and image scanning in CI</td></tr>
         </tbody>
       </table>
@@ -267,7 +458,7 @@
   </div>
 </section>
 
-<section id="quickstart">
+<section class="alt" id="quickstart">
   <div class="wrap">
     <h2>Quick start</h2>
     <p class="section-lede">
@@ -299,19 +490,45 @@ cd frontend &amp;&amp; npm install &amp;&amp; npm run dev</pre>
     <p style="margin-top:20px;color:var(--muted);font-size:.93rem">
       Open <b>localhost:3000</b> for the chat widget, <b>/admin</b> for the dashboard.
       Adding real credentials later? <code>make doctor</code> verifies every configured
-      integration against the live provider before you deploy.
+      integration against the live provider before you deploy, and
+      <code>python -m app.telegram_bot info</code> does the same for the bot.
     </p>
+  </div>
+</section>
+
+<section id="story">
+  <div class="wrap">
+    <h2>How it was built</h2>
+    <p class="section-lede">
+      The design constraints that shaped the codebase — each one chosen because the obvious
+      alternative failed in a specific, boring way.
+    </p>
+    <div class="steps">
+      <div class="step"><span class="n">01</span><h3>Determinism first</h3>
+        <p>The interview is a state machine, not a prompt. Tests never call a model, so the suite is fast and cannot flake on a provider's mood.</p></div>
+      <div class="step"><span class="n">02</span><h3>Offline fallback everywhere</h3>
+        <p>Mock LLM, hashing embedder, in-memory cache and queue. A fresh clone is a working product, which makes the demo honest.</p></div>
+      <div class="step"><span class="n">03</span><h3>Tenancy as an invariant</h3>
+        <p>Every query is workspace-scoped. Cross-tenant reads return 404 rather than 403, so existence is never leaked.</p></div>
+      <div class="step"><span class="n">04</span><h3>Fail closed, not open</h3>
+        <p>The Telegram webhook rejects every request while its secret is unset, and the API refuses to boot in production on placeholder credentials.</p></div>
+      <div class="step"><span class="n">05</span><h3>Delivery is logged, not hoped</h3>
+        <p>Every outbound message is a row with status, attempts and error — so "did the client get it?" is a query, not a guess.</p></div>
+      <div class="step"><span class="n">06</span><h3>The gate is the reviewer</h3>
+        <p>CI enforces lint, format, types, a coverage floor, a dependency audit and a real migration + smoke test on every push.</p></div>
+    </div>
   </div>
 </section>
 
 <section class="alt" id="docs">
   <div class="wrap">
     <h2>Documentation</h2>
+    <p class="section-lede">Written to be read in this order, but each stands alone.</p>
     <div class="docs">
       <a class="doc" href="__REPO_URL__/blob/main/README.md"><b>README</b><span>Features, setup, project tour</span></a>
       <a class="doc" href="__REPO_URL__/blob/main/docs/ARCHITECTURE.md"><b>Architecture</b><span>Diagrams, tenancy, design rationale</span></a>
       <a class="doc" href="__REPO_URL__/blob/main/docs/API.md"><b>API reference</b><span>Endpoints, auth, pagination</span></a>
-      <a class="doc" href="__REPO_URL__/blob/main/docs/DEPLOYMENT.md"><b>Deployment</b><span>Docker, environment, production notes</span></a>
+      <a class="doc" href="__REPO_URL__/blob/main/docs/DEPLOYMENT.md"><b>Deployment</b><span>Docker, Render, environment, production notes</span></a>
       <a class="doc" href="__REPO_URL__/blob/main/docs/TROUBLESHOOTING.md"><b>Troubleshooting</b><span>Common failures and fixes</span></a>
       <a class="doc" href="__REPO_URL__/blob/main/SECURITY.md"><b>Security</b><span>Threat model and reporting</span></a>
       <a class="doc" href="__REPO_URL__/blob/main/CONTRIBUTING.md"><b>Contributing</b><span>Invariants enforced in review</span></a>
@@ -321,9 +538,48 @@ cd frontend &amp;&amp; npm install &amp;&amp; npm run dev</pre>
 </section>
 
 <footer>
-  <div class="wrap footer-row">
-    <span>MIT licensed · Built with FastAPI and Next.js</span>
-    <span><a href="__REPO_URL__">GitHub</a> · <a href="__REPO_URL__/issues">Issues</a></span>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="__REPO_URL__">GitHub</a></li>
+          <li><a href="__REPO_URL__/blob/main/README.md">README</a></li>
+          <li><a href="__REPO_URL__/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="__REPO_URL__/blob/main/ROADMAP.md">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Documentation</h4>
+        <ul>
+          <li><a href="__REPO_URL__/blob/main/docs/ARCHITECTURE.md">Architecture</a></li>
+          <li><a href="__REPO_URL__/blob/main/docs/API.md">API reference</a></li>
+          <li><a href="__REPO_URL__/blob/main/docs/DEPLOYMENT.md">Deployment</a></li>
+          <li><a href="__REPO_URL__/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="__REPO_URL__/blob/main/CONTRIBUTING.md">Contributing</a></li>
+          <li><a href="__REPO_URL__/blob/main/SECURITY.md">Security policy</a></li>
+          <li><a href="__REPO_URL__/issues">Issues</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>FastAPI · Python 3.12</li>
+          <li>Next.js 15 · React 19</li>
+          <li>PostgreSQL · Redis</li>
+          <li>Docker · GitHub Actions</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bot">
+      <span>MIT licensed · © 2026 Ivan Melnikov</span>
+      <span><a href="__REPO_URL__">GitHub</a> · <a href="__REPO_URL__/issues">Issues</a></span>
+    </div>
   </div>
 </footer>
 

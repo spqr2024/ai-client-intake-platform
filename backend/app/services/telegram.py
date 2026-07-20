@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import DEFAULT_WORKSPACE_ID, ActivityLog, Lead
+from app.models import DEFAULT_WORKSPACE_ID, ActivityLog, Lead, utcnow
 from app.services import runtime_settings
 
 logger = logging.getLogger(__name__)
@@ -212,10 +212,16 @@ BOT_COMMANDS = [
 # about lead data or the managerial commands: a stranger should not be able to
 # map the CRM surface by messaging the bot.
 PROSPECT_WELCOME = (
-    "👋 <b>Hi, I'm Nora</b> — the intake assistant.\n\n"
-    "I help collect project details so the team can get back to you quickly.\n\n"
-    "Project enquiries through this chat are coming soon. In the meantime, "
-    "please use the contact form on the website and I'll pick it up from there."
+    "👋 Hi, I'm Nora — I collect project details so the team can get back to "
+    "you quickly.\n\n"
+    "Just tell me about your project and I'll ask a few questions. "
+    "Send /start at any time to begin again."
+)
+
+INTAKE_COMPLETE = (
+    "🎉 That's everything — thank you!\n\n"
+    "Our team has your details and will be in touch shortly. "
+    "Send /start if you'd like to submit another project."
 )
 
 HELP_TEXT = (
@@ -534,15 +540,139 @@ async def _handle_set_status(db: Session, message: dict, text: str, chat_id, wor
 
 
 async def _handle_prospect(db, message, text, command, chat_id, workspace_id) -> dict:
-    """A chat that is not a configured manager.
+    """A chat that is not a configured manager: run the intake interview.
 
-    No branch here may read or write CRM state, and none may reveal that the
-    managerial commands exist. Intake replaces this greeting in a later change;
-    the invariant that must survive it is that a prospect can only ever create
-    a lead describing themselves.
+    No branch here may read or write CRM state beyond the prospect's own
+    conversation, and none may reveal that the managerial commands exist. A
+    prospect can create a lead describing themselves and nothing more.
     """
-    logger.info("Telegram message from prospect chat %s", chat_id)
-    return await _reply(chat_id, PROSPECT_WELCOME)
+    if not _intake_allowed(chat_id):
+        # Silence rather than an error: telling a flooder they hit a limit just
+        # tells them the limit exists.
+        logger.warning("Telegram intake rate limit hit for chat %s", chat_id)
+        return {"ok": True, "throttled": True}
+
+    if command in ("/start", "/restart"):
+        return await _start_intake(db, message, chat_id, workspace_id, restart=True)
+    if command == "/help":
+        return await _reply(chat_id, PROSPECT_WELCOME)
+    if command:
+        # Managerial commands must not even be acknowledged as existing.
+        return await _reply(chat_id, PROSPECT_WELCOME)
+
+    conversation = _find_intake_conversation(db, chat_id, workspace_id)
+    if conversation is None:
+        return await _start_intake(db, message, chat_id, workspace_id)
+    return await _continue_intake(db, conversation, text, chat_id)
+
+
+# ── Prospect intake ───────────────────────────────────────────────────────
+INTAKE_CHANNEL = "telegram"
+# Generous for a real conversation, restrictive for a script: the bot is
+# publicly reachable, and every completed interview writes a lead row.
+INTAKE_MAX_MESSAGES_PER_MINUTE = 20
+
+
+def _external_ref(chat_id) -> str:
+    return f"{INTAKE_CHANNEL}:{chat_id}"
+
+
+def _intake_allowed(chat_id) -> bool:
+    from app.core.cache import get_cache
+
+    count = get_cache().incr_window(f"tg-intake:{chat_id}", 60)
+    return count <= INTAKE_MAX_MESSAGES_PER_MINUTE
+
+
+def _find_intake_conversation(db: Session, chat_id, workspace_id: int):
+    """The chat's still-running interview, if any."""
+    from sqlalchemy import select
+
+    from app.models import Conversation
+
+    return db.scalars(
+        select(Conversation)
+        .where(
+            Conversation.workspace_id == workspace_id,
+            Conversation.external_ref == _external_ref(chat_id),
+            Conversation.status == "Active",
+        )
+        .order_by(Conversation.started_at.desc())
+    ).first()
+
+
+def _quick_reply_keyboard(options: list[str]) -> dict | None:
+    """Offer the flow's suggested answers as tappable buttons.
+
+    `one_time_keyboard` so it disappears after use — a stale keyboard from an
+    earlier question is worse than none.
+    """
+    if not options:
+        return {"remove_keyboard": True}
+    return {
+        "keyboard": [[{"text": option[:64]}] for option in options[:6]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+    }
+
+
+async def _send_intake_reply(chat_id, reply) -> dict:
+    await _api(
+        "sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": reply.bot_message[:3900],
+            "reply_markup": _quick_reply_keyboard(reply.quick_replies),
+        },
+    )
+    return {"ok": True, "done": reply.done}
+
+
+async def _start_intake(db: Session, message: dict, chat_id, workspace_id: int, restart=False) -> dict:
+    from app.services import chat as chat_service
+
+    if restart:
+        # Abandon whatever was running so /start always means a clean slate.
+        existing = _find_intake_conversation(db, chat_id, workspace_id)
+        if existing is not None:
+            existing.status = "Abandoned"
+            existing.ended_at = utcnow()
+            db.commit()
+
+    sender = message.get("from") or {}
+    # Telegram's profile name seeds the flow, so it can skip asking.
+    display_name = " ".join(p for p in (sender.get("first_name"), sender.get("last_name")) if p)
+    language = "uk" if str(sender.get("language_code", "")).startswith("uk") else ""
+
+    conversation, reply = chat_service.start_conversation(
+        db,
+        client_name=display_name,
+        language=language,
+        workspace_id=workspace_id,
+    )
+    conversation.external_ref = _external_ref(chat_id)
+    db.commit()
+    logger.info("Started Telegram intake %s for chat %s", conversation.id, chat_id)
+    return await _send_intake_reply(chat_id, reply)
+
+
+async def _continue_intake(db: Session, conversation, text: str, chat_id) -> dict:
+    from app.services import chat as chat_service
+
+    await _api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+    try:
+        reply = await chat_service.process_message(db, conversation, text)
+    except Exception:
+        # A failed turn must not strand the prospect mid-interview.
+        logger.exception("Telegram intake turn failed for conversation %s", conversation.id)
+        return await _reply(chat_id, "Sorry — something went wrong. Please send that again.")
+
+    result = await _send_intake_reply(chat_id, reply)
+    if reply.done:
+        # _finalize already created the lead and ran the notification fan-out.
+        logger.info("Telegram intake completed for chat %s (lead %s)", chat_id, reply.lead_id)
+        await _reply(chat_id, INTAKE_COMPLETE)
+    return result
 
 
 async def _reply(chat_id, text: str) -> dict:

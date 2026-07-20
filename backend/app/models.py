@@ -124,6 +124,10 @@ class Conversation(Base):
     # state: {current_node, answers, clarify_count, memory{summary,upto}, history[…]}
     state: Mapped[dict] = mapped_column(JSON, default=dict)
     last_node: Mapped[str] = mapped_column(String(120), default="", index=True)
+    # Identifies the conversation on a non-web channel, e.g. "telegram:123456".
+    # Indexed because every inbound Telegram message looks the conversation up
+    # by this value. Namespaced by channel so a second one cannot collide.
+    external_ref: Mapped[str] = mapped_column(String(120), default="", index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

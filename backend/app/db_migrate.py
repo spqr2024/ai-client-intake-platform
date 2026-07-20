@@ -30,6 +30,7 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
     "conversations": {
         "workspace_id": f"INTEGER DEFAULT {DEFAULT_WORKSPACE_ID}",
         "last_node": "VARCHAR(120) DEFAULT ''",
+        "external_ref": "VARCHAR(120) DEFAULT ''",
     },
     "messages": {"meta": "JSON DEFAULT '{}'"},
     "workflows": {

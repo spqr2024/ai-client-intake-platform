@@ -69,6 +69,8 @@ EDITABLE_KEYS = set(DEFAULTS)
 ENV_BACKED_KEYS: dict[str, str] = {
     "crm_provider": "crm_provider",
     "crm_api_key": "crm_api_key",
+    "staff_notification_email": "staff_notification_email",
+    "telegram_chat_id": "telegram_chat_id",
 }
 
 

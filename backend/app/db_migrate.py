@@ -141,6 +141,27 @@ def post_create(engine: Engine) -> None:
             conn.execute(text("DROP TABLE app_settings_legacy"))
             logger.info("Copied legacy settings into default workspace")
 
+        # Demo seeding up to v2.2.0 wrote the placeholder "sales@example.com"
+        # into staff_notification_email on every boot. A stored value outranks
+        # the env default, so those rows keep hijacking lead alerts long after
+        # STAFF_NOTIFICATION_EMAIL is configured. Clear the placeholder only —
+        # an empty value falls through to env / the admin UI. Any address an
+        # operator actually chose is left untouched.
+        if "app_settings" in tables:
+            result = conn.execute(
+                text(
+                    "UPDATE app_settings SET value = '' "
+                    "WHERE key = 'staff_notification_email' AND value = :placeholder"
+                ),
+                {"placeholder": "sales@example.com"},
+            )
+            if result.rowcount:
+                logger.info(
+                    "Cleared %s placeholder staff_notification_email row(s); "
+                    "resolving from STAFF_NOTIFICATION_EMAIL instead",
+                    result.rowcount,
+                )
+
         # Backfill any NULL workspace ids left by ALTER TABLE on old rows.
         for table in ("users", "leads", "conversations", "workflows", "kb_articles"):
             if table in tables and "workspace_id" in _existing_columns(engine, table):

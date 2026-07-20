@@ -135,6 +135,69 @@ def test_telegram_webhook_rejects_missing_and_wrong_secret(client, db_session):
     assert lead.status == "New"
 
 
+def test_telegram_rejects_unauthorized_chat(client, auth_headers, db_session):
+    """A valid webhook secret proves the update came from Telegram — not that it
+    came from our manager. Any stranger can DM a public bot, so updates from a
+    chat that is not the configured one must not touch lead state."""
+    from app.models import Lead
+
+    lead = Lead(project_name="TG stranger test", status="New")
+    db_session.add(lead)
+    db_session.commit()
+    db_session.refresh(lead)
+
+    stranger = 999999  # not the configured chat (42)
+
+    note = {
+        "update_id": 10,
+        "message": {
+            "chat": {"id": stranger},
+            "from": {"first_name": "Stranger"},
+            "text": f"/note {lead.id} injected by an outsider",
+        },
+    }
+    assert client.post("/api/webhook/telegram", json=note, headers=WEBHOOK_HEADERS).json()["ok"] is False
+
+    accept = {
+        "update_id": 11,
+        "callback_query": {
+            "id": "cb-stranger",
+            "from": {"first_name": "Stranger"},
+            "data": f"accept:{lead.id}",
+            "message": {"chat": {"id": stranger}},
+        },
+    }
+    assert client.post("/api/webhook/telegram", json=accept, headers=WEBHOOK_HEADERS).json()["ok"] is False
+
+    # Neither call may have mutated the lead.
+    detail = client.get(f"/api/leads/{lead.id}", headers=auth_headers).json()
+    assert detail["status"] == "New"
+    assert not any("outsider" in a["detail"] for a in detail["activities"])
+
+
+def test_telegram_authorization_does_not_fall_open_when_unset(client, db_session, monkeypatch):
+    """An empty allowlist means "not configured", not "allow everyone"."""
+    from app.core.config import get_settings
+    from app.services import telegram as telegram_service
+
+    monkeypatch.setattr(get_settings(), "telegram_chat_id", "")
+    assert telegram_service._is_authorized(db_session, 42, 1) is False
+    assert telegram_service._is_authorized(db_session, 999, 1) is False
+
+
+def test_telegram_start_and_help_commands(client):
+    """/start used to fall through silently, so a correctly wired bot looked
+    dead to the operator."""
+    for command in ("/start", "/help", "/status", "/help@aiclient_intake_bot"):
+        update = {
+            "update_id": 20,
+            "message": {"chat": {"id": 42}, "from": {"first_name": "Manager"}, "text": command},
+        }
+        resp = client.post("/api/webhook/telegram", json=update, headers=WEBHOOK_HEADERS)
+        assert resp.status_code == 200, command
+        assert resp.json()["ok"] is True, command
+
+
 def test_telegram_webhook_fails_closed_when_unconfigured(client, monkeypatch):
     """An unset secret disables the endpoint rather than disabling the check —
     a misconfigured deploy must not become world-writable."""

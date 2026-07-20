@@ -80,3 +80,11 @@ def configure_logging(level: str = "INFO") -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+
+    # httpx logs every request line at INFO, including the full URL. The
+    # Telegram Bot API carries its token *in the path*
+    # (api.telegram.org/bot<TOKEN>/sendMessage), so at LOG_LEVEL=INFO the bot
+    # token is written to stdout on every notification — straight into whatever
+    # aggregates the logs. Nothing below WARNING from httpx is worth that.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

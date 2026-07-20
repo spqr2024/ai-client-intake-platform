@@ -102,6 +102,16 @@ async def _stale_conversation_reaper() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+
+    # Refuse to serve traffic with placeholder credentials. Failing to boot is
+    # recoverable; running publicly with a known JWT secret is not.
+    config_errors = settings.production_config_errors()
+    if config_errors:
+        listed = "\n".join(f"  - {e}" for e in config_errors)
+        if settings.is_production:
+            raise RuntimeError(f"Unsafe configuration for ENVIRONMENT=production:\n{listed}")
+        logger.warning("Configuration is not production-ready:\n%s", listed)
+
     db_migrate.enforce_sqlite_foreign_keys(engine)
     db_migrate.migrate(engine)
     Base.metadata.create_all(bind=engine)

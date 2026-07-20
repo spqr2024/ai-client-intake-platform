@@ -324,6 +324,10 @@ def _ensure_users(db: Session, workspace_id: int) -> None:
 
 
 def _ensure_branding(db: Session, workspace_id: int) -> None:
+    # Deliberately does NOT seed `staff_notification_email`. This runs on every
+    # boot with DEMO_MODE=on, so writing a literal here would overwrite the real
+    # operator inbox after each restart. The value resolves from
+    # STAFF_NOTIFICATION_EMAIL (env-backed) or whatever the admin UI saved.
     runtime_settings.set_many(
         db,
         {
@@ -335,7 +339,6 @@ def _ensure_branding(db: Session, workspace_id: int) -> None:
                 "Nora interviews every prospect 24/7, captures budget, timeline and scope, "
                 "scores the lead and hands our team a ready-to-act brief."
             ),
-            "staff_notification_email": "sales@example.com",
         },
         workspace_id,
     )

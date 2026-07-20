@@ -12,7 +12,12 @@ os.environ["EMBEDDING_PROVIDER"] = "mock"
 os.environ["TELEGRAM_BOT_TOKEN"] = ""
 # The webhook fails closed, so the suite needs a known secret to exercise it.
 os.environ["TELEGRAM_WEBHOOK_SECRET"] = "test-webhook-secret"
+# Chat 42 stands in for the authorized manager: webhook updates are accepted
+# only from a configured chat, so the suite needs one pinned. Also stops a
+# developer's real .env chat id from deciding who the tests treat as trusted.
+os.environ["TELEGRAM_CHAT_ID"] = "42"
 os.environ["SMTP_HOST"] = ""
+os.environ["STAFF_NOTIFICATION_EMAIL"] = ""
 # A developer's real .env must never leak into the suite: these would
 # otherwise reach live providers (and CRM export would create real contacts).
 for _key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"):

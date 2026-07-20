@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getToken, logout, NotificationOut, UserOut } from "@/lib/api";
+import { api, getToken, logout, setTokens, NotificationOut, UserOut } from "@/lib/api";
 import { focusRing } from "@/components/ui";
 
 const NAV = [
@@ -15,6 +15,14 @@ const NAV = [
   { href: "/admin/audit", label: "Audit Log", icon: "🛡️", adminOnly: true },
   { href: "/admin/settings", label: "Settings", icon: "⚙️", adminOnly: true },
 ];
+
+// Routes an authenticated non-admin (e.g. a manager) still must not open by
+// typing the URL. Hiding the nav link is presentation, not access control.
+const ADMIN_ONLY_PREFIXES = NAV.filter((item) => item.adminOnly).map((item) => item.href);
+
+function isAdminOnlyPath(pathname: string): boolean {
+  return ADMIN_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -127,15 +135,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const [user, setUser] = useState<UserOut | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  // "checking" until the server confirms the token. Nothing from the admin app
+  // renders in that window — a token in localStorage is a claim, not proof, and
+  // only /api/auth/me can settle it.
+  const [authState, setAuthState] = useState<"checking" | "authed" | "denied">("checking");
   const isLogin = pathname === "/admin/login";
 
   useEffect(() => {
     if (isLogin) return;
+    let cancelled = false;
+
     if (!getToken()) {
+      setAuthState("denied");
       router.replace("/admin/login");
       return;
     }
-    api<UserOut>("/api/auth/me", {}, true).then(setUser).catch(() => {});
+
+    api<UserOut>("/api/auth/me", {}, true)
+      .then((me) => {
+        if (cancelled) return;
+        setUser(me);
+        setAuthState("authed");
+      })
+      .catch(() => {
+        // Previously swallowed, which left an expired or forged token sitting on
+        // a fully rendered admin shell. Any failure here means "not verified":
+        // drop the credentials and get out.
+        if (cancelled) return;
+        setTokens(null, null);
+        setAuthState("denied");
+        router.replace("/admin/login");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isLogin, router, pathname]);
 
   // Route changes close the mobile drawer, otherwise it covers the new page.
@@ -143,7 +177,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLogin) return <>{children}</>;
 
+  // Until the check settles, render a neutral placeholder — never `children`,
+  // and never the admin chrome. This is what stops a direct URL from flashing
+  // real data (and from firing the page's own API calls) before the redirect.
+  if (authState !== "authed") {
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center bg-slate-50"
+        aria-busy={authState === "checking"}
+      >
+        <p className="text-sm text-slate-400">
+          {authState === "checking" ? "Verifying your session…" : "Redirecting to sign in…"}
+        </p>
+      </div>
+    );
+  }
+
   const visibleNav = NAV.filter((item) => !item.adminOnly || user?.role === "admin");
+
+  // An authenticated manager typing /admin/settings must be refused, not merely
+  // shown a page whose API calls happen to 403. The backend enforces this too
+  // (require_admin); this keeps the UI honest rather than relying on it.
+  const roleBlocked = isAdminOnlyPath(pathname) && user?.role !== "admin";
 
   const navLinks = (
     <ul className="space-y-1">
@@ -263,7 +318,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </aside>
 
         <main id="main-content" className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-          {children}
+          {roleBlocked ? (
+            <div className="mx-auto max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center">
+              <p className="text-3xl" aria-hidden="true">
+                🔒
+              </p>
+              <h1 className="mt-3 text-lg font-semibold text-slate-800">Administrator access only</h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Your account has the <strong>{user?.role}</strong> role, which cannot open this
+                section. Ask an administrator if you need access.
+              </p>
+              <Link
+                href="/admin"
+                className={`mt-5 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 ${focusRing}`}
+              >
+                Back to leads
+              </Link>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

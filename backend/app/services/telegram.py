@@ -14,7 +14,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import ActivityLog, Lead
+from app.models import DEFAULT_WORKSPACE_ID, ActivityLog, Lead
 from app.services import runtime_settings
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,13 @@ def workspace_chat_id(db: Session, workspace_id: int) -> str:
 
 # ── Transport ─────────────────────────────────────────────────────────────
 async def _api(method: str, payload: dict, raise_on_error: bool = False) -> dict | None:
+    """Call the Bot API.
+
+    Errors are reported using Telegram's own `description` field rather than
+    the bare HTTP status. The status alone is close to useless for diagnosis —
+    "403 Forbidden" hides "the bot can't send messages to the bot", which is
+    the difference between a misconfigured chat id and a revoked token.
+    """
     settings = get_settings()
     if not settings.telegram_bot_token:
         if raise_on_error:
@@ -50,13 +57,29 @@ async def _api(method: str, payload: dict, raise_on_error: bool = False) -> dict
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            return resp.json()
     except httpx.HTTPError as exc:
+        # Transport-level: DNS, TLS, timeout. No response body to mine.
         logger.error("Telegram API %s failed: %s", method, exc)
         if raise_on_error:
             raise TelegramError(f"{method}: {exc}") from exc
         return None
+
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+
+    # Telegram signals logical failure with ok:false. That can arrive with a
+    # 4xx *or*, for some methods, a 200 — so trust `ok`, not the status code.
+    if resp.is_success and body.get("ok"):
+        return body
+
+    description = body.get("description") or resp.text[:200] or f"HTTP {resp.status_code}"
+    detail = f"{method}: {description} (HTTP {resp.status_code})"
+    logger.error("Telegram API %s", detail)
+    if raise_on_error:
+        raise TelegramError(detail)
+    return None
 
 
 async def send_message(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
@@ -94,17 +117,121 @@ def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
     return {"inline_keyboard": rows}
 
 
+# ── Authorization ─────────────────────────────────────────────────────────
+def authorized_chat_ids(db: Session, workspace_id: int) -> set[str]:
+    """Chats allowed to drive the CRM over Telegram.
+
+    The webhook secret proves an update came from *Telegram*, not that it came
+    from *our manager* — anyone who finds @the_bot can DM it. Without this the
+    `/note` and Accept/Reject handlers are world-writable to any Telegram user.
+    """
+    candidates = {
+        runtime_settings.get(db, "telegram_chat_id", workspace_id),
+        get_settings().telegram_chat_id,
+    }
+    return {str(c).strip() for c in candidates if str(c).strip()}
+
+
+def _is_authorized(db: Session, chat_id, workspace_id: int) -> bool:
+    allowed = authorized_chat_ids(db, workspace_id)
+    # No configured chat means the integration is not set up. Deny rather than
+    # fall open — an empty allowlist must not mean "allow everyone".
+    return bool(allowed) and str(chat_id) in allowed
+
+
 # ── Webhook handling (manager actions) ────────────────────────────────────
-async def handle_update(db: Session, update: dict) -> dict:
+BOT_COMMANDS = [
+    {"command": "start", "description": "Check that the bot is connected"},
+    {"command": "help", "description": "List available commands"},
+    {"command": "status", "description": "Show integration status"},
+    {"command": "note", "description": "Add a note: /note <lead_id> <text>"},
+]
+
+HELP_TEXT = (
+    "🤖 <b>Nora AI — lead assistant</b>\n\n"
+    "You receive a card for every new lead, with inline actions:\n"
+    "✅ Accept · ❌ Reject · 📞 Call · 🔗 Open in CRM\n\n"
+    "<b>Commands</b>\n"
+    "/start — check the bot is connected\n"
+    "/help — this message\n"
+    "/status — show integration status\n"
+    "/note &lt;lead_id&gt; &lt;text&gt; — attach a note to a lead\n"
+    "   e.g. <code>/note 12 Very promising client</code>"
+)
+
+
+async def handle_update(db: Session, update: dict, workspace_id: int = DEFAULT_WORKSPACE_ID) -> dict:
     callback = update.get("callback_query")
     if callback:
+        chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+        if not _is_authorized(db, chat_id, workspace_id):
+            logger.warning("Telegram callback from unauthorized chat %s ignored", chat_id)
+            await _answer_callback(callback, "This bot is not configured for your account.")
+            return {"ok": False, "error": "unauthorized"}
         return await _handle_callback(db, callback)
 
     message = update.get("message") or {}
     text = (message.get("text") or "").strip()
-    if text.startswith("/note"):
+    chat_id = (message.get("chat") or {}).get("id")
+    if not text:
+        return {"ok": True}
+
+    if not _is_authorized(db, chat_id, workspace_id):
+        logger.warning("Telegram message from unauthorized chat %s ignored", chat_id)
+        if chat_id:
+            # Tell them plainly instead of staying silent, but leak nothing
+            # about the CRM. The chat id is what an operator needs to add them.
+            await _api(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": (
+                        "This bot is private and handles lead notifications for its "
+                        f"operator only.\nYour chat id is {chat_id}."
+                    ),
+                },
+            )
+        return {"ok": False, "error": "unauthorized"}
+
+    # Strip the @botname suffix Telegram appends in groups (/help@my_bot).
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+
+    if command == "/start":
+        return await _reply(chat_id, "✅ Connected. " + HELP_TEXT)
+    if command == "/help":
+        return await _reply(chat_id, HELP_TEXT)
+    if command == "/status":
+        return await _reply(chat_id, _status_text(db, workspace_id))
+    if command == "/note":
         return await _handle_note(db, message, text)
+    if command.startswith("/"):
+        return await _reply(chat_id, f"Unknown command {html.escape(command)}.\n\n{HELP_TEXT}")
     return {"ok": True}
+
+
+async def _reply(chat_id, text: str) -> dict:
+    if chat_id:
+        await _api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+    return {"ok": True}
+
+
+def _status_text(db: Session, workspace_id: int) -> str:
+    settings = get_settings()
+    chat_id = workspace_chat_id(db, workspace_id)
+    lines = [
+        "<b>Integration status</b>",
+        f"Bot token: {'configured' if settings.telegram_bot_token else '❌ missing'}",
+        f"Notification chat: {html.escape(chat_id) if chat_id else '❌ not set'}",
+        f"Webhook secret: {'configured' if settings.telegram_webhook_secret else '❌ missing'}",
+        f"Notifications: {'on' if enabled(db, workspace_id) else 'off'}",
+    ]
+    return "\n".join(lines)
+
+
+async def register_commands() -> bool:
+    """Publish the command list so Telegram shows a menu in the UI."""
+    result = await _api("setMyCommands", {"commands": BOT_COMMANDS})
+    return bool(result)
 
 
 async def _handle_callback(db: Session, callback: dict) -> dict:

@@ -199,8 +199,12 @@ def _is_authorized(db: Session, chat_id, workspace_id: int) -> bool:
 BOT_COMMANDS = [
     {"command": "start", "description": "Check that the bot is connected"},
     {"command": "help", "description": "List available commands"},
-    {"command": "status", "description": "Show integration status"},
+    {"command": "leads", "description": "Recent leads (optionally by status)"},
+    {"command": "lead", "description": "Lead detail: /lead <id>"},
+    {"command": "stats", "description": "Pipeline summary"},
+    {"command": "setstatus", "description": "Move a lead: /setstatus <id> <status>"},
     {"command": "note", "description": "Add a note: /note <lead_id> <text>"},
+    {"command": "status", "description": "Show integration status"},
 ]
 
 # Shown to any chat that is not a configured manager. Deliberately says nothing
@@ -217,12 +221,15 @@ HELP_TEXT = (
     "🤖 <b>Nora AI — lead assistant</b>\n\n"
     "You receive a card for every new lead, with inline actions:\n"
     "✅ Accept · ❌ Reject · 📞 Call · 🔗 Open in CRM\n\n"
-    "<b>Commands</b>\n"
-    "/start — check the bot is connected\n"
-    "/help — this message\n"
-    "/status — show integration status\n"
-    "/note &lt;lead_id&gt; &lt;text&gt; — attach a note to a lead\n"
-    "   e.g. <code>/note 12 Very promising client</code>"
+    "<b>Leads</b>\n"
+    "/leads — 10 most recent\n"
+    "/leads &lt;status&gt; — filter, e.g. <code>/leads Qualified</code>\n"
+    "/lead &lt;id&gt; — full detail with actions\n"
+    "/stats — pipeline summary\n"
+    "/setstatus &lt;id&gt; &lt;status&gt; — e.g. <code>/setstatus 12 Converted</code>\n"
+    "/note &lt;id&gt; &lt;text&gt; — e.g. <code>/note 12 Very promising</code>\n\n"
+    "<b>Bot</b>\n"
+    "/start · /help · /status — connection and integration state"
 )
 
 
@@ -263,11 +270,181 @@ async def _handle_manager(db, message, text, command, chat_id, workspace_id) -> 
         return await _reply(chat_id, _status_text(db, workspace_id))
     if command == "/note":
         return await _handle_note(db, message, text)
+    if command == "/leads":
+        return await _handle_leads(db, text, chat_id, workspace_id)
+    if command == "/lead":
+        return await _handle_lead_detail(db, text, chat_id, workspace_id)
+    if command == "/stats":
+        return await _handle_stats(db, chat_id, workspace_id)
+    if command == "/setstatus":
+        return await _handle_set_status(db, message, text, chat_id, workspace_id)
     if command:
         return await _reply(chat_id, f"Unknown command {html.escape(command)}.\n\n{HELP_TEXT}")
     # Free text becomes an assistant conversation in a later change. Until then
     # say so, rather than ignoring the manager silently.
     return await _reply(chat_id, "I only understand commands for now.\n\n" + HELP_TEXT)
+
+
+# ── Lead commands (manager only) ──────────────────────────────────────────
+def _fmt_budget(budget) -> str:
+    return f"${budget:,.0f}" if budget else "—"
+
+
+def _lead_line(lead) -> str:
+    """One compact row: id, score, project, status."""
+    name = lead.project_name or lead.client_name or "Untitled"
+    return (
+        f"<code>#{lead.id}</code> ⭐{lead.score:>3} · {html.escape(name[:38])}\n"
+        f"     {html.escape(lead.status)} · {_fmt_budget(lead.budget)}"
+    )
+
+
+async def _handle_leads(db: Session, text: str, chat_id, workspace_id: int) -> dict:
+    from sqlalchemy import select
+
+    from app.models import Lead
+
+    parts = text.split(maxsplit=1)
+    wanted = parts[1].strip() if len(parts) > 1 else ""
+
+    # Workspace scoping is the tenancy invariant, not an optimisation: without
+    # it this command would read every tenant's leads.
+    query = select(Lead).where(Lead.workspace_id == workspace_id)
+    if wanted:
+        statuses = runtime_settings.pipeline_statuses(db, workspace_id)
+        match = next((s for s in statuses if s.lower() == wanted.lower()), None)
+        if match is None:
+            return await _reply(
+                chat_id,
+                f"Unknown status {html.escape(wanted)!r}.\nTry: {html.escape(', '.join(statuses))}",
+            )
+        query = query.where(Lead.status == match)
+
+    leads = db.scalars(query.order_by(Lead.id.desc()).limit(10)).all()
+    if not leads:
+        scope = f" with status {html.escape(wanted)}" if wanted else ""
+        return await _reply(chat_id, f"No leads{scope} yet.")
+
+    header = f"<b>Recent leads{' · ' + html.escape(wanted) if wanted else ''}</b>"
+    body = "\n".join(_lead_line(lead) for lead in leads)
+    return await _reply(chat_id, f"{header}\n\n{body}\n\nUse /lead &lt;id&gt; for detail.")
+
+
+def _parse_lead_id(text: str) -> int | None:
+    parts = text.split()
+    if len(parts) < 2 or not parts[1].lstrip("#").isdigit():
+        return None
+    return int(parts[1].lstrip("#"))
+
+
+def _load_lead(db: Session, lead_id: int, workspace_id: int):
+    """Scoped fetch. Returns None for another tenant's lead, so a manager
+    cannot read across workspaces by guessing ids."""
+    from app.models import Lead
+
+    lead = db.get(Lead, lead_id)
+    if lead is None or lead.workspace_id != workspace_id:
+        return None
+    return lead
+
+
+async def _handle_lead_detail(db: Session, text: str, chat_id, workspace_id: int) -> dict:
+    lead_id = _parse_lead_id(text)
+    if lead_id is None:
+        return await _reply(chat_id, "Usage: <code>/lead &lt;id&gt;</code>, e.g. <code>/lead 12</code>")
+
+    lead = _load_lead(db, lead_id, workspace_id)
+    if lead is None:
+        return await _reply(chat_id, f"Lead #{lead_id} not found.")
+
+    lines = [
+        f"<b>Lead #{lead.id}</b> · ⭐ {lead.score}/100 · {html.escape(lead.priority)}",
+        f"📌 {html.escape(lead.project_name or '—')}",
+        f"🛠 {html.escape(lead.service or '—')}",
+        f"💰 {_fmt_budget(lead.budget)}   ⏱ {html.escape(lead.timeline or '—')}",
+        f"📊 {html.escape(lead.status)}",
+        "",
+        f"👤 {html.escape(lead.client_name or 'Anonymous')}",
+        f"✉️ {html.escape(lead.client_email or '—')}",
+        f"📞 {html.escape(lead.client_phone or '—')}",
+    ]
+    if lead.summary:
+        # Telegram caps a message at 4096 characters; truncate the free-text
+        # field rather than have the whole send rejected.
+        lines += ["", "📝 " + html.escape(lead.summary[:700])]
+
+    from app.services.notifications import lead_link
+
+    return await _reply_with_keyboard(chat_id, "\n".join(lines), lead_keyboard(lead.id, lead_link(lead.id)))
+
+
+async def _handle_stats(db: Session, chat_id, workspace_id: int) -> dict:
+    from app.services import analytics
+
+    data = analytics.summary(db, days=30, workspace_id=workspace_id)
+    by_status = data.get("leads_by_status") or {}
+    lines = [
+        "<b>Pipeline · last 30 days</b>",
+        "",
+        f"Leads          {data.get('total_leads', 0)}",
+        f"Conversations  {data.get('total_conversations', 0)}",
+        f"Completion     {data.get('completion_rate', 0):.0f}%",
+        f"Conversion     {data.get('conversion_rate', 0):.0f}%",
+        f"Avg budget     {_fmt_budget(data.get('average_budget'))}",
+        f"Avg score      {data.get('average_score', 0):.0f}/100",
+    ]
+    if by_status:
+        lines += ["", "<b>By status</b>"]
+        lines += [f"{html.escape(k):<14} {v}" for k, v in by_status.items()]
+    return await _reply(chat_id, "\n".join(lines))
+
+
+async def _handle_set_status(db: Session, message: dict, text: str, chat_id, workspace_id: int) -> dict:
+    parts = text.split(maxsplit=2)
+    statuses = runtime_settings.pipeline_statuses(db, workspace_id)
+    usage = (
+        "Usage: <code>/setstatus &lt;id&gt; &lt;status&gt;</code>\n"
+        f"Statuses: {html.escape(', '.join(statuses))}"
+    )
+    if len(parts) < 3 or not parts[1].lstrip("#").isdigit():
+        return await _reply(chat_id, usage)
+
+    lead = _load_lead(db, int(parts[1].lstrip("#")), workspace_id)
+    if lead is None:
+        return await _reply(chat_id, f"Lead #{parts[1]} not found.")
+
+    wanted = parts[2].strip()
+    match = next((s for s in statuses if s.lower() == wanted.lower()), None)
+    if match is None:
+        return await _reply(chat_id, f"Unknown status {html.escape(wanted)!r}.\n\n{usage}")
+
+    old_status = lead.status
+    if old_status == match:
+        return await _reply(chat_id, f"Lead #{lead.id} is already {html.escape(match)}.")
+
+    actor = (message.get("from") or {}).get("first_name", "manager")
+    lead.status = match
+    db.add(
+        ActivityLog(
+            lead_id=lead.id,
+            actor=f"telegram:{actor}",
+            action="status_change",
+            detail=f"Status → {match} (via Telegram)",
+        )
+    )
+    db.commit()
+
+    # Same fan-out as a dashboard change, so the in-app feed stays consistent.
+    from app.services.notifications import notify_lead_status_change
+
+    try:
+        await notify_lead_status_change(db, lead, old_status, f"telegram:{actor}")
+    except Exception:
+        logger.exception("Status-change fan-out failed for lead %s", lead.id)
+
+    return await _reply(
+        chat_id, f"✅ Lead #{lead.id}: {html.escape(old_status)} → <b>{html.escape(match)}</b>"
+    )
 
 
 async def _handle_prospect(db, message, text, command, chat_id, workspace_id) -> dict:
@@ -285,6 +462,15 @@ async def _handle_prospect(db, message, text, command, chat_id, workspace_id) ->
 async def _reply(chat_id, text: str) -> dict:
     if chat_id:
         await _api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+    return {"ok": True}
+
+
+async def _reply_with_keyboard(chat_id, text: str, keyboard: dict) -> dict:
+    if chat_id:
+        await _api(
+            "sendMessage",
+            {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "reply_markup": keyboard},
+        )
     return {"ok": True}
 
 

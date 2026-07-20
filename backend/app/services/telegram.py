@@ -204,6 +204,7 @@ BOT_COMMANDS = [
     {"command": "stats", "description": "Pipeline summary"},
     {"command": "setstatus", "description": "Move a lead: /setstatus <id> <status>"},
     {"command": "note", "description": "Add a note: /note <lead_id> <text>"},
+    {"command": "clear", "description": "Forget the assistant conversation"},
     {"command": "status", "description": "Show integration status"},
 ]
 
@@ -228,6 +229,9 @@ HELP_TEXT = (
     "/stats — pipeline summary\n"
     "/setstatus &lt;id&gt; &lt;status&gt; — e.g. <code>/setstatus 12 Converted</code>\n"
     "/note &lt;id&gt; &lt;text&gt; — e.g. <code>/note 12 Very promising</code>\n\n"
+    "<b>Ask me anything</b>\n"
+    "Send a plain message (no slash) and I'll answer using your knowledge base.\n"
+    "/clear — forget our conversation\n\n"
     "<b>Bot</b>\n"
     "/start · /help · /status — connection and integration state"
 )
@@ -278,11 +282,93 @@ async def _handle_manager(db, message, text, command, chat_id, workspace_id) -> 
         return await _handle_stats(db, chat_id, workspace_id)
     if command == "/setstatus":
         return await _handle_set_status(db, message, text, chat_id, workspace_id)
+    if command == "/clear":
+        _assistant_history.pop(str(chat_id), None)
+        return await _reply(chat_id, "🧹 Cleared. We're starting fresh.")
     if command:
         return await _reply(chat_id, f"Unknown command {html.escape(command)}.\n\n{HELP_TEXT}")
-    # Free text becomes an assistant conversation in a later change. Until then
-    # say so, rather than ignoring the manager silently.
-    return await _reply(chat_id, "I only understand commands for now.\n\n" + HELP_TEXT)
+    # Anything that is not a command is a question for the assistant.
+    return await _handle_assistant(db, text, chat_id, workspace_id)
+
+
+# ── Assistant conversation (manager only) ─────────────────────────────────
+# Recent turns per chat, so follow-ups like "and the budget?" resolve.
+#
+# Deliberately in memory: this is a manager's Q&A scratchpad, not business
+# data, and persisting it would either pollute the Conversation/Message tables
+# that feed lead analytics or need a schema of its own. The cost is that
+# history resets on restart and is per-process — acceptable for a single
+# operator chat, and the KB grounding does the real work regardless.
+_assistant_history: dict[str, list[dict[str, str]]] = {}
+_HISTORY_TURNS = 12  # 6 exchanges
+
+ASSISTANT_SYSTEM = (
+    "You are Nora, the internal assistant for a client-intake team. "
+    "Answer the operator's question directly and concisely — you are replying in "
+    "a Telegram chat, so keep it short and skip pleasantries. "
+    "When knowledge-base extracts are supplied, prefer them over your own "
+    "assumptions and say plainly when they do not cover the question. "
+    "Never invent lead data, prices or commitments."
+)
+
+
+def _remember(chat_key: str, role: str, content: str) -> list[dict[str, str]]:
+    turns = _assistant_history.setdefault(chat_key, [])
+    turns.append({"role": role, "content": content})
+    # Trim oldest first; unbounded history would eventually exceed the model's
+    # context window and start failing every request.
+    del turns[:-_HISTORY_TURNS]
+    return turns
+
+
+async def _handle_assistant(db: Session, text: str, chat_id, workspace_id: int) -> dict:
+    from app.services import kb as kb_service
+    from app.services import llm
+
+    cfg = llm.resolve_config(runtime_settings.llm_overrides(db, workspace_id))
+    if cfg.provider == "mock":
+        # The deterministic provider returns an empty completion, which would
+        # look like the bot ignoring the manager. Say what is actually wrong.
+        return await _reply(
+            chat_id,
+            "I can answer questions once an AI provider is configured.\n"
+            "Set <code>AI_PROVIDER</code> and its API key, or use the commands in /help.",
+        )
+
+    # Long enough that silence would read as a failure.
+    await _api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+    context = ""
+    try:
+        hits = await kb_service.search(db, text, workspace_id=workspace_id, log_source="telegram")
+        if hits:
+            extracts = "\n\n".join(f"[{article.title}]\n{article.content[:900]}" for article, _score in hits)
+            context = f"\n\nKnowledge base extracts:\n{extracts}"
+    except Exception:
+        # Retrieval is an enhancement; a KB failure must not cost the answer.
+        logger.exception("KB retrieval failed for the Telegram assistant")
+
+    chat_key = str(chat_id)
+    messages = list(_remember(chat_key, "user", text))
+    if context:
+        # Attach to the live turn only, so stored history stays clean and the
+        # next question re-retrieves rather than reusing stale extracts.
+        messages = [*messages[:-1], {"role": "user", "content": text + context}]
+
+    try:
+        answer = (await llm.complete(messages, cfg, system=ASSISTANT_SYSTEM)).strip()
+    except llm.LLMError as exc:
+        logger.error("Telegram assistant completion failed: %s", exc)
+        _assistant_history.get(chat_key, []).pop()  # don't keep an unanswered turn
+        return await _reply(chat_id, "⚠️ The AI provider did not respond. Please try again.")
+
+    if not answer:
+        _assistant_history.get(chat_key, []).pop()
+        return await _reply(chat_id, "⚠️ I got an empty response from the AI provider.")
+
+    _remember(chat_key, "assistant", answer)
+    # Telegram hard-caps a message at 4096 characters.
+    return await _reply(chat_id, html.escape(answer[:3900]))
 
 
 # ── Lead commands (manager only) ──────────────────────────────────────────

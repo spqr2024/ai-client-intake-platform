@@ -135,6 +135,44 @@ def test_telegram_webhook_rejects_missing_and_wrong_secret(client, db_session):
     assert lead.status == "New"
 
 
+def test_lead_card_survives_an_unreachable_public_app_url():
+    """Regression: PUBLIC_APP_URL=http://localhost:3000 (the shipped default)
+    put a localhost link on the "Open in CRM" button. Telegram rejects such a
+    URL and refuses the *entire* sendMessage, so managers silently received no
+    lead card at all — the Accept/Reject/Call actions went down with the link.
+    """
+    from app.services import telegram as tg
+
+    for bad in (
+        "http://localhost:3000/admin/leads/16",
+        "http://127.0.0.1:3000/admin/leads/16",
+        "http://backend/admin/leads/16",  # container hostname
+        "ftp://example.com/x",
+        "not-a-url",
+    ):
+        assert tg.is_valid_button_url(bad) is False, bad
+
+    for good in (
+        "https://app.example.com/admin/leads/16",
+        "http://app.example.com/admin/leads/16",
+    ):
+        assert tg.is_valid_button_url(good) is True, good
+
+    # The actions must survive a bad link...
+    degraded = tg.lead_keyboard(16, "http://localhost:3000/admin/leads/16")
+    labels = [b["text"] for row in degraded["inline_keyboard"] for b in row]
+    assert any("Accept" in t for t in labels)
+    assert any("Reject" in t for t in labels)
+    assert any("Call" in t for t in labels)
+    assert not any("CRM" in t for t in labels)
+    # ...and no button may carry a URL Telegram would reject.
+    assert all("url" not in b for row in degraded["inline_keyboard"] for b in row)
+
+    # ...and a good link still gets the deep-link button.
+    full = tg.lead_keyboard(16, "https://app.example.com/admin/leads/16")
+    assert any("CRM" in b["text"] for row in full["inline_keyboard"] for b in row)
+
+
 def test_telegram_rejects_unauthorized_chat(client, auth_headers, db_session):
     """A valid webhook secret proves the update came from Telegram — not that it
     came from our manager. Any stranger can DM a public bot, so updates from a

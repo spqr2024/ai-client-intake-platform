@@ -9,6 +9,7 @@ actions (Accept / Reject / Call, /note command).
 
 import html
 import logging
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -104,6 +105,27 @@ def build_lead_text(lead: Lead) -> str:
     )
 
 
+def is_valid_button_url(url: str) -> bool:
+    """Whether Telegram will accept `url` on an inline keyboard button.
+
+    Telegram rejects hosts it cannot resolve publicly — localhost, bare IPs and
+    single-label names all come back as "Wrong HTTP URL". It rejects the *whole*
+    sendMessage call, not just the offending button, so an unreachable
+    PUBLIC_APP_URL silently costs you the entire lead card: the Accept / Reject /
+    Call actions disappear along with the link. Checked here so a development
+    default degrades to a card without the CRM link instead of no card at all.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost"):
+        return False
+    # A public host is either dotted (example.com) or an explicit IP; a bare
+    # label like "backend" only resolves inside a container network.
+    return "." in host
+
+
 def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
     rows = [
         [
@@ -113,7 +135,15 @@ def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
         ]
     ]
     if deep_link:
-        rows.append([{"text": "🔗 Open in CRM", "url": deep_link}])
+        if is_valid_button_url(deep_link):
+            rows.append([{"text": "🔗 Open in CRM", "url": deep_link}])
+        else:
+            logger.warning(
+                "Omitting the 'Open in CRM' button: PUBLIC_APP_URL (%s) is not a "
+                "publicly resolvable http(s) URL, and Telegram would reject the "
+                "whole message. Set PUBLIC_APP_URL to the deployed dashboard URL.",
+                deep_link,
+            )
     return {"inline_keyboard": rows}
 
 

@@ -26,6 +26,7 @@ ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "priority": "VARCHAR(20) DEFAULT 'Medium'",
         "tags": "JSON DEFAULT '[]'",
         "follow_up_at": "TIMESTAMP",
+        "follow_up_notified_at": "TIMESTAMP",
     },
     "conversations": {
         "workspace_id": f"INTEGER DEFAULT {DEFAULT_WORKSPACE_ID}",

@@ -63,3 +63,21 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture()
+def other_workspace_id(client, db_session):
+    """A genuine second tenant for isolation tests.
+
+    Foreign keys are enforced in the suite, so inventing a workspace id would
+    fail on insert instead of proving isolation.
+    """
+    from app.models import Workspace
+
+    existing = db_session.query(Workspace).filter(Workspace.slug == "second-tenant").first()
+    if existing is None:
+        existing = Workspace(name="Second Tenant", slug="second-tenant")
+        db_session.add(existing)
+        db_session.commit()
+        db_session.refresh(existing)
+    return existing.id

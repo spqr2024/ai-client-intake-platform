@@ -77,6 +77,12 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = 60
 
+    # Hour of day (0-23, UTC) for the Telegram daily digest. Set
+    # DIGEST_ENABLED=false to switch the digest off and keep only the
+    # follow-up reminders, which are time-driven rather than scheduled.
+    digest_enabled: bool = True
+    digest_hour: int = 9
+
     upload_dir: Path = BASE_DIR / "uploads"
     max_upload_mb: int = 10
 

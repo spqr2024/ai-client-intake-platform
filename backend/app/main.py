@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +48,7 @@ from app.models import DEFAULT_WORKSPACE_ID, User
 from app.services import chat as chat_service
 from app.services import crm as _crm  # noqa: F401 — registers CRM providers + queue handler
 from app.services import notifications as _notifications  # noqa: F401 — registers queue handlers
+from app.services import reminders
 
 configure_logging(get_settings().log_level)
 logger = logging.getLogger("app")
@@ -99,6 +101,35 @@ async def _stale_conversation_reaper() -> None:
             report_error(exc, component="stale_conversation_reaper")
 
 
+async def _reminder_scheduler() -> None:
+    """Drives the follow-up reminders and the daily digest.
+
+    A coarse 15-minute tick rather than a cron dependency: both jobs decide for
+    themselves whether they are due, from persisted state, so a missed tick or
+    a restart cannot double-send or skip. The cost is that the digest lands
+    within 15 minutes of the configured hour, which is the right trade for one
+    daily message.
+    """
+    interval = 900
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            settings = get_settings()
+            db = SessionLocal()
+            try:
+                sent = await reminders.send_follow_up_reminders(db)
+                if sent:
+                    logger.info("Sent %s follow-up reminder(s)", sent)
+
+                due_for_digest = settings.digest_enabled and datetime.now(UTC).hour == settings.digest_hour
+                if due_for_digest and await reminders.send_daily_digest(db):
+                    logger.info("Sent the daily digest")
+            finally:
+                db.close()
+        except Exception as exc:
+            report_error(exc, component="reminder_scheduler")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -132,6 +163,7 @@ async def lifespan(app: FastAPI):
     background = [
         asyncio.create_task(_stale_conversation_reaper()),
         asyncio.create_task(queue.worker_loop()),
+        asyncio.create_task(_reminder_scheduler()),
     ]
     logger.info("Application started", extra={"version": health.APP_VERSION, "demo_mode": settings.demo_mode})
     yield

@@ -93,6 +93,10 @@ class Lead(Base):
     priority: Mapped[str] = mapped_column(String(20), default="Medium")  # Low|Medium|High|Urgent
     tags: Mapped[list] = mapped_column(JSON, default=list)
     follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the follow-up reminder was actually delivered. Separate from
+    # follow_up_at so the due date stays visible in the UI after reminding,
+    # and so a restart cannot re-send a reminder that already went out.
+    follow_up_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     score: Mapped[int] = mapped_column(Integer, default=0)
     language: Mapped[str] = mapped_column(String(8), default="en")
     assigned_to_id: Mapped[int | None] = mapped_column(

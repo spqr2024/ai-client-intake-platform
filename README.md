@@ -3,9 +3,11 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)](frontend/)
-[![Tests](https://img.shields.io/badge/tests-138_passing-brightgreen)](backend/tests/)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-272_passing-brightgreen)](backend/tests/)
+[![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)](backend/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+### 🔗 [Project site](https://spqr2024.github.io/ai-client-intake-platform/) · [Telegram bot](https://t.me/aiclient_intake_bot) · [Documentation](#-more-docs) · [API reference](docs/API.md)
 
 A **multi-tenant SaaS platform** that replaces static contact forms with an intelligent
 conversational interface. An AI agent interviews prospects 24/7, adapts its questions,
@@ -38,7 +40,7 @@ moment you clone it.
 | 📋 **CRM v2** | Kanban pipeline with drag & drop, custom stages per workspace, tags, priorities, follow-up reminders, internal comments, activity timeline, full-text search |
 | ▶️ **Conversation Replay** | Step-by-step replay with timestamps, workflow-node metadata, KB-match scores, attachments and CRM events on one timeline |
 | 🔔 **Notification Center** | In-app bell + email + Telegram behind one dispatch API; queue-backed retries with exponential backoff; per-message delivery log; Slack/Discord registry slots |
-| 📱 **Telegram Bot** | New-lead alerts with ✅/❌/📞 inline actions, deep links into the CRM, status-change updates, `/note` command, secret-protected webhook |
+| 📱 **Telegram Bot** | A full second front-end — see [below](#-telegram-bot). Lead alerts with ✅/❌/📞 inline actions, the pipeline runnable from your phone (`/leads`, `/lead`, `/stats`, `/setstatus`), conversation with the AI assistant grounded in your knowledge base, **prospect intake through Telegram** producing real scored leads, plus a daily digest and follow-up reminders |
 | ✉️ **Email v2** | Provider abstraction (SMTP + console; extensible), branded HTML templates with plain-text alternative, delivery status tracking |
 | 📊 **Analytics + AI Analytics** | KPIs, leads/day, conversion funnel, drop-off by workflow node, conversation length, lead quality bands, AI capture confidence, common client questions |
 | 🏢 **Multi-Tenant Workspaces** | Isolated data per company: leads, KB, workflows, prompts, settings, branding, audit — 404-on-cross-tenant by construction |
@@ -81,7 +83,7 @@ Key design decisions:
 | **Data** | PostgreSQL (prod) · SQLite (dev, zero-config) | Same SQLAlchemy code path both ways; nothing to install to start |
 | **Cache / queue** | Redis, optional | Cluster-wide rate limits and durable retries; degrades to in-process |
 | **AI** | OpenAI · Anthropic · Gemini · OpenRouter · offline mock | Provider-agnostic behind one interface; the mock keeps tests deterministic |
-| **Tests** | pytest + coverage gate · Vitest + Testing Library | 138 tests, no API keys or network required |
+| **Tests** | pytest + coverage gate · Vitest + Testing Library | 272 tests (241 backend + 31 frontend), no API keys or network required |
 | **Quality** | Ruff (lint + format) · ESLint · tsc strict · pre-commit | Enforced in CI, not by convention |
 | **Ops** | Docker (non-root, multi-stage) · Compose · GitHub Actions · Prometheus `/metrics` | Reproducible builds, dependency audits, image scanning in CI |
 
@@ -90,7 +92,8 @@ Key design decisions:
 ### Docker (Postgres + Redis + backend + frontend)
 
 ```bash
-git clone <repo-url> && cd ai-client-intake-platform
+git clone https://github.com/spqr2024/ai-client-intake-platform.git
+cd ai-client-intake-platform
 cp .env.example .env
 docker compose up --build
 ```
@@ -198,8 +201,120 @@ For a scripted, non-random dataset instead, use `make seed`.
 | Real LLM | Set the provider key in `.env`, pick provider/model in **Settings → AI** |
 | Semantic embeddings | `EMBEDDING_PROVIDER=openai` (or gemini/openrouter) + key, then **KB → Reindex** |
 | Redis | `REDIS_URL=redis://…` — rate limits, caches and the delivery queue go cluster-wide |
-| Telegram | Bot token in `.env`, chat ID in **Settings → Notifications**, register webhook: `https://api.telegram.org/bot<token>/setWebhook?url=https://<host>/api/webhook/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>` |
+| Telegram | Bot token + chat id in `.env` (or **Settings → Notifications**), then `python -m app.telegram_bot set-webhook https://<host>` |
 | Email | `SMTP_*` in `.env` — branded HTML + plain-text alternative |
+
+## 🚢 Deployment
+
+**[render.yaml](render.yaml)** describes the whole stack — API, dashboard,
+PostgreSQL and Redis. Render → *New → Blueprint* → pick this repository. Every
+secret is declared `sync: false` so Render prompts for it once and stores it
+encrypted; `JWT_SECRET` and `TELEGRAM_WEBHOOK_SECRET` are machine-generated, so
+no human ever picks them.
+
+Set **`ENVIRONMENT=production`** and the API *refuses to boot* on unsafe
+configuration rather than serving traffic while insecure:
+
+```
+RuntimeError: Unsafe configuration for ENVIRONMENT=production:
+  - JWT_SECRET is still the documented placeholder - anyone can forge tokens.
+  - DEMO_MODE=true seeds fake leads - turn it off in production.
+```
+
+It also catches `DEBUG=true`, wildcard or localhost `CORS_ORIGINS`, a non-HTTPS
+`PUBLIC_APP_URL`, and a Telegram token with no webhook secret. In any other
+environment the same problems are warnings, so a fresh clone still starts with
+zero configuration.
+
+The dashboard is `output: "standalone"` — a **server** app. GitHub Pages hosts
+only the marketing page in `site/`; the application itself needs a Node runtime
+(Render, Vercel, Fly, or the provided container).
+
+Full checklist, Compose, Kubernetes sketch, backups and rollback:
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+## 📱 Telegram bot
+
+Live bot: **[@aiclient_intake_bot](https://t.me/aiclient_intake_bot)**
+
+The bot is a second front-end, not a notifier. Every chat resolves to one of two
+roles, and they have **disjoint** capabilities:
+
+| | **Manager** — a configured chat id | **Prospect** — anyone else |
+|---|---|---|
+| Lead commands, notes, Accept/Reject | ✅ | ❌ never |
+| Conversation with the AI assistant | ✅ | ❌ never |
+| Interviewed by Nora, creating a lead | — | ✅ |
+
+The webhook secret proves an update came from *Telegram*; it says nothing about
+*who* sent it, and anyone can DM a public bot. So the role decides everything —
+a prospect never reaches a branch that reads or writes CRM state, and the
+greeting they receive never names a managerial command.
+
+### Manager commands
+
+| Command | Does |
+|---|---|
+| `/leads [status]` | 10 most recent, optionally filtered — e.g. `/leads Qualified` |
+| `/lead <id>` | Full detail with the Accept / Reject / Call actions |
+| `/stats` | 30-day pipeline summary |
+| `/setstatus <id> <status>` | Move a lead — audited and fanned out exactly like a dashboard change |
+| `/note <id> <text>` | Attach a note to a lead |
+| *(plain message)* | Ask the assistant anything — answered from your knowledge base |
+| `/clear` | Forget the assistant conversation |
+| `/start` · `/help` · `/status` | Connection and integration state |
+
+Status names come from the workspace's `pipeline_statuses` setting, so a
+customised pipeline is followed automatically. Every query is workspace-scoped:
+a manager cannot reach another tenant's lead by guessing an id.
+
+### Prospect intake
+
+A chat that is not a configured manager is interviewed by **the same workflow
+state machine the web widget uses**, and a completed interview produces a real
+scored lead with the normal notification fan-out. Conversation state is
+persisted (`conversations.external_ref`), so an interview survives a restart
+instead of looping on the first question.
+
+> **This gives your CRM a public write path.** Anyone who finds the bot can
+> start an interview and create a lead. Intake is rate-limited to 20 messages
+> per minute per chat (cluster-wide when Redis is configured); consider whether
+> that is the posture you want before publishing the bot's username.
+
+### Scheduled nudges
+
+- **Follow-up reminders** when a lead's `follow_up_at` arrives.
+- **Daily digest** of new leads at `DIGEST_HOUR` (UTC, default 09), off via `DIGEST_ENABLED=false`.
+
+Both are idempotent from persisted state rather than scheduling precision: the
+driving loop ticks every 15 minutes and may run after a restart, so a delivered
+reminder is recorded on the lead and the digest consults the notification log.
+A *failed* send is deliberately not marked, so the next tick retries it. Quiet
+days send nothing — a digest that reports "0 leads" every morning trains you to
+ignore it.
+
+### Operating the bot
+
+```bash
+python -m app.telegram_bot info               # bot, webhook, authorized chats
+python -m app.telegram_bot set-webhook https://api.example.com   # production
+python -m app.telegram_bot delete-webhook
+python -m app.telegram_bot poll               # local dev, no public URL needed
+python -m app.telegram_bot register-commands  # publish the / menu
+```
+
+Webhook and polling are mutually exclusive — Telegram serves `getUpdates` only
+when no webhook is registered, and `poll` refuses to start if one is.
+
+> **`TELEGRAM_CHAT_ID` is not the bot's own id** (the number before the colon in
+> the token). A bot cannot message itself: Telegram answers *"the bot can't send
+> messages to the bot"* and nothing is ever delivered. `info` detects this
+> specific mistake and says so.
+
+> **`PUBLIC_APP_URL` must be a publicly resolvable HTTPS URL** for the "Open in
+> CRM" button. Telegram rejects `localhost` links — and rejects the *entire*
+> message, taking the Accept/Reject/Call actions down with it. The button is
+> dropped with a warning rather than losing the card.
 
 ## 📡 API overview
 
@@ -224,8 +339,8 @@ Interactive OpenAPI docs at `/docs`. Highlights (🔒 = JWT, 👑 = admin):
 ## 🧪 Testing & quality
 
 ```bash
-cd backend && ruff check app tests && pytest --cov=app   # 112 tests, 84% coverage
-cd frontend && npm run lint && npm run build
+cd backend && ruff check app tests && pytest --cov=app   # 241 tests, 81% coverage
+cd frontend && npm run lint && npm run test:run && npm run build   # 31 tests
 ```
 
 - The suite runs with **zero API keys and zero external services** — mock LLM,
@@ -233,19 +348,31 @@ cd frontend && npm run lint && npm run build
 - Coverage spans: workflow engine, chat E2E (EN+UK), tenancy isolation, refresh-token
   rotation/replay, prompts versioning/rollback, kanban/custom statuses/tags, replay
   timeline, notification center + delivery logs, queue retry, semantic KB, memory
-  compression, audit trail, Telegram webhook.
+  compression, audit trail, and the Telegram bot end to end — webhook auth, the
+  manager/prospect role split, lead commands, assistant grounding, intake, and
+  reminder idempotency.
+- Two sweeps guard the boundaries rather than individual cases: every route in
+  the OpenAPI schema must refuse an anonymous caller, and `.env.example` must
+  document every `Settings` field (the config ignores unknown keys, so drift is
+  otherwise silent).
 
 ## 📁 Project structure
 
 ```
 backend/app/
-  api/          # routers: auth, chat, leads, prompts, notifications, audit, kb, …
-  core/         # config, security (JWT+refresh), cache, queue, rate limiting
-  services/     # chat, workflow engine, llm, embeddings, vectorstore, kb, memory,
-                # notifications, telegram, email, prompts, audit, analytics, scoring
-  db_migrate.py # additive auto-migrator (v1 → v2 data-preserving)
-frontend/app/   # landing + /admin (kanban CRM, analytics, prompts, audit, settings…)
-docs/           # ARCHITECTURE.md
+  api/            # routers: auth, chat, leads, prompts, notifications, audit, kb, …
+  core/           # config (+ production safety checks), security (JWT+refresh),
+                  # cache, queue, rate limiting, structured logging
+  services/       # chat, workflow engine, llm, embeddings, vectorstore, kb, memory,
+                  # notifications, telegram, reminders, email, prompts, audit,
+                  # analytics, scoring
+  db_migrate.py   # additive auto-migrator (data-preserving)
+  doctor.py       # credential preflight against live providers
+  telegram_bot.py # bot operations CLI (info / set-webhook / poll / …)
+frontend/app/     # landing + /admin (kanban CRM, analytics, prompts, audit, settings…)
+docs/             # architecture, API, deployment, troubleshooting, brand, portfolio
+site/             # the project page published to GitHub Pages
+render.yaml       # one-click Render blueprint: API, web, Postgres, Redis
 ```
 
 ## 📸 Screenshots
@@ -383,7 +510,7 @@ than one that names them. Full table with remediation paths in
 [Releasing](docs/RELEASING.md)
 
 **Presentation**
-[Project site](site/index.html) (published to GitHub Pages) ·
+[Project site](https://spqr2024.github.io/ai-client-intake-platform/) ([source](site/index.html)) ·
 [Case study](docs/portfolio/CASE_STUDY.md) · [Brand & visual identity](docs/BRAND.md) ·
 [Screenshot capture guide](docs/SCREENSHOTS.md)
 

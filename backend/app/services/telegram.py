@@ -147,14 +147,22 @@ def lead_keyboard(lead_id: int, deep_link: str = "") -> dict:
     return {"inline_keyboard": rows}
 
 
-# ── Authorization ─────────────────────────────────────────────────────────
-def authorized_chat_ids(db: Session, workspace_id: int) -> set[str]:
-    """Chats allowed to drive the CRM over Telegram.
+# ── Roles ─────────────────────────────────────────────────────────────────
+# Two kinds of chat talk to this bot, and they get disjoint capabilities.
+#
+#   MANAGER  — a configured chat id. Runs the CRM: lead queries, notes,
+#              accept/reject, and conversation with the assistant.
+#   PROSPECT — anyone else. May be interviewed by the intake flow, and may
+#              never read or mutate CRM state.
+#
+# The webhook secret only proves an update came from Telegram; it says nothing
+# about who sent it. Anyone can DM a public bot, so the role decides everything.
+MANAGER = "manager"
+PROSPECT = "prospect"
 
-    The webhook secret proves an update came from *Telegram*, not that it came
-    from *our manager* — anyone who finds @the_bot can DM it. Without this the
-    `/note` and Accept/Reject handlers are world-writable to any Telegram user.
-    """
+
+def authorized_chat_ids(db: Session, workspace_id: int) -> set[str]:
+    """Chat ids treated as managers."""
     candidates = {
         runtime_settings.get(db, "telegram_chat_id", workspace_id),
         get_settings().telegram_chat_id,
@@ -162,11 +170,29 @@ def authorized_chat_ids(db: Session, workspace_id: int) -> set[str]:
     return {str(c).strip() for c in candidates if str(c).strip()}
 
 
-def _is_authorized(db: Session, chat_id, workspace_id: int) -> bool:
+def chat_role(db: Session, chat_id, workspace_id: int) -> str:
+    """Resolve a chat to MANAGER or PROSPECT.
+
+    Deliberately has no third "blocked" state: a stranger is a potential lead,
+    not an intruder. What protects the CRM is that PROSPECT is never granted a
+    managerial capability — not that the stranger is turned away at the door.
+    """
     allowed = authorized_chat_ids(db, workspace_id)
-    # No configured chat means the integration is not set up. Deny rather than
-    # fall open — an empty allowlist must not mean "allow everyone".
-    return bool(allowed) and str(chat_id) in allowed
+    # An unconfigured integration has no manager. Everyone is a prospect, so a
+    # misconfigured deploy cannot hand CRM control to whoever messages first.
+    if allowed and str(chat_id) in allowed:
+        return MANAGER
+    return PROSPECT
+
+
+def is_manager(db: Session, chat_id, workspace_id: int) -> bool:
+    return chat_role(db, chat_id, workspace_id) == MANAGER
+
+
+# Kept as the single gate every managerial capability must pass through, so a
+# new command cannot accidentally skip the check.
+def _is_authorized(db: Session, chat_id, workspace_id: int) -> bool:
+    return is_manager(db, chat_id, workspace_id)
 
 
 # ── Webhook handling (manager actions) ────────────────────────────────────
@@ -176,6 +202,16 @@ BOT_COMMANDS = [
     {"command": "status", "description": "Show integration status"},
     {"command": "note", "description": "Add a note: /note <lead_id> <text>"},
 ]
+
+# Shown to any chat that is not a configured manager. Deliberately says nothing
+# about lead data or the managerial commands: a stranger should not be able to
+# map the CRM surface by messaging the bot.
+PROSPECT_WELCOME = (
+    "👋 <b>Hi, I'm Nora</b> — the intake assistant.\n\n"
+    "I help collect project details so the team can get back to you quickly.\n\n"
+    "Project enquiries through this chat are coming soon. In the meantime, "
+    "please use the contact form on the website and I'll pick it up from there."
+)
 
 HELP_TEXT = (
     "🤖 <b>Nora AI — lead assistant</b>\n\n"
@@ -194,8 +230,10 @@ async def handle_update(db: Session, update: dict, workspace_id: int = DEFAULT_W
     callback = update.get("callback_query")
     if callback:
         chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
-        if not _is_authorized(db, chat_id, workspace_id):
-            logger.warning("Telegram callback from unauthorized chat %s ignored", chat_id)
+        # Callbacks only ever come from a lead card, and only managers are sent
+        # one — so a callback from a prospect is always illegitimate.
+        if not is_manager(db, chat_id, workspace_id):
+            logger.warning("Telegram callback from non-manager chat %s ignored", chat_id)
             await _answer_callback(callback, "This bot is not configured for your account.")
             return {"ok": False, "error": "unauthorized"}
         return await _handle_callback(db, callback)
@@ -206,26 +244,17 @@ async def handle_update(db: Session, update: dict, workspace_id: int = DEFAULT_W
     if not text:
         return {"ok": True}
 
-    if not _is_authorized(db, chat_id, workspace_id):
-        logger.warning("Telegram message from unauthorized chat %s ignored", chat_id)
-        if chat_id:
-            # Tell them plainly instead of staying silent, but leak nothing
-            # about the CRM. The chat id is what an operator needs to add them.
-            await _api(
-                "sendMessage",
-                {
-                    "chat_id": chat_id,
-                    "text": (
-                        "This bot is private and handles lead notifications for its "
-                        f"operator only.\nYour chat id is {chat_id}."
-                    ),
-                },
-            )
-        return {"ok": False, "error": "unauthorized"}
-
     # Strip the @botname suffix Telegram appends in groups (/help@my_bot).
-    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
 
+    if chat_role(db, chat_id, workspace_id) == MANAGER:
+        return await _handle_manager(db, message, text, command, chat_id, workspace_id)
+    return await _handle_prospect(db, message, text, command, chat_id, workspace_id)
+
+
+async def _handle_manager(db, message, text, command, chat_id, workspace_id) -> dict:
+    """Full CRM capability. Every branch here is manager-only by construction:
+    `handle_update` is the sole caller and it checks the role first."""
     if command == "/start":
         return await _reply(chat_id, "✅ Connected. " + HELP_TEXT)
     if command == "/help":
@@ -234,9 +263,23 @@ async def handle_update(db: Session, update: dict, workspace_id: int = DEFAULT_W
         return await _reply(chat_id, _status_text(db, workspace_id))
     if command == "/note":
         return await _handle_note(db, message, text)
-    if command.startswith("/"):
+    if command:
         return await _reply(chat_id, f"Unknown command {html.escape(command)}.\n\n{HELP_TEXT}")
-    return {"ok": True}
+    # Free text becomes an assistant conversation in a later change. Until then
+    # say so, rather than ignoring the manager silently.
+    return await _reply(chat_id, "I only understand commands for now.\n\n" + HELP_TEXT)
+
+
+async def _handle_prospect(db, message, text, command, chat_id, workspace_id) -> dict:
+    """A chat that is not a configured manager.
+
+    No branch here may read or write CRM state, and none may reveal that the
+    managerial commands exist. Intake replaces this greeting in a later change;
+    the invariant that must survive it is that a prospect can only ever create
+    a lead describing themselves.
+    """
+    logger.info("Telegram message from prospect chat %s", chat_id)
+    return await _reply(chat_id, PROSPECT_WELCOME)
 
 
 async def _reply(chat_id, text: str) -> dict:

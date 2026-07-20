@@ -173,10 +173,15 @@ def test_lead_card_survives_an_unreachable_public_app_url():
     assert any("CRM" in b["text"] for row in full["inline_keyboard"] for b in row)
 
 
-def test_telegram_rejects_unauthorized_chat(client, auth_headers, db_session):
+def test_prospect_chat_cannot_touch_crm_state(client, auth_headers, db_session):
     """A valid webhook secret proves the update came from Telegram — not that it
-    came from our manager. Any stranger can DM a public bot, so updates from a
-    chat that is not the configured one must not touch lead state."""
+    came from our manager. Anyone can DM a public bot.
+
+    A non-manager chat is a *prospect*, not an intruder: it gets a friendly
+    reply rather than a rejection, so the intake flow can use the same door.
+    What must hold is that no prospect branch reads or writes CRM state. This
+    asserts that invariant rather than the response shape, which intake changes.
+    """
     from app.models import Lead
 
     lead = Lead(project_name="TG stranger test", status="New")
@@ -194,7 +199,7 @@ def test_telegram_rejects_unauthorized_chat(client, auth_headers, db_session):
             "text": f"/note {lead.id} injected by an outsider",
         },
     }
-    assert client.post("/api/webhook/telegram", json=note, headers=WEBHOOK_HEADERS).json()["ok"] is False
+    client.post("/api/webhook/telegram", json=note, headers=WEBHOOK_HEADERS)
 
     accept = {
         "update_id": 11,
@@ -205,12 +210,44 @@ def test_telegram_rejects_unauthorized_chat(client, auth_headers, db_session):
             "message": {"chat": {"id": stranger}},
         },
     }
-    assert client.post("/api/webhook/telegram", json=accept, headers=WEBHOOK_HEADERS).json()["ok"] is False
+    # A callback can only originate from a lead card, which prospects never
+    # receive, so this one stays an outright rejection.
+    resp = client.post("/api/webhook/telegram", json=accept, headers=WEBHOOK_HEADERS)
+    assert resp.json()["ok"] is False
 
-    # Neither call may have mutated the lead.
+    # The invariant: neither call may have mutated the lead.
     detail = client.get(f"/api/leads/{lead.id}", headers=auth_headers).json()
     assert detail["status"] == "New"
     assert not any("outsider" in a["detail"] for a in detail["activities"])
+
+
+def test_prospect_reply_does_not_disclose_the_crm_surface(db_session):
+    """The greeting a stranger gets must not advertise managerial commands —
+    otherwise the bot hands an attacker a map of what to try next."""
+    from app.services import telegram as tg
+
+    text = tg.PROSPECT_WELCOME.lower()
+    for leaked in ("/note", "/leads", "/status", "lead id", "crm", "accept", "reject"):
+        assert leaked not in text, f"prospect greeting mentions {leaked!r}"
+
+
+def test_roles_resolve_correctly(db_session):
+    from app.services import telegram as tg
+
+    assert tg.chat_role(db_session, 42, 1) == tg.MANAGER
+    assert tg.chat_role(db_session, 999999, 1) == tg.PROSPECT
+    assert tg.is_manager(db_session, 42, 1) is True
+    assert tg.is_manager(db_session, 999999, 1) is False
+
+
+def test_unconfigured_integration_grants_nobody_manager(db_session, monkeypatch):
+    """An empty allowlist must not promote whoever messages first."""
+    from app.core.config import get_settings
+    from app.services import telegram as tg
+
+    monkeypatch.setattr(get_settings(), "telegram_chat_id", "")
+    assert tg.chat_role(db_session, 42, 1) == tg.PROSPECT
+    assert tg.is_manager(db_session, 42, 1) is False
 
 
 def test_telegram_authorization_does_not_fall_open_when_unset(client, db_session, monkeypatch):

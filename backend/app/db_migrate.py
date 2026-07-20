@@ -113,8 +113,45 @@ def enforce_sqlite_foreign_keys(engine: Engine) -> None:
         cursor.close()
 
 
+def ensure_indexes(engine: Engine) -> None:
+    """Create declared indexes that are missing from an existing table.
+
+    `create_all` only creates missing *tables*; it never adds an index to a
+    table that already exists. Combined with ADDITIVE_COLUMNS — which uses
+    ALTER TABLE ADD COLUMN, and so cannot carry an index — a column declared
+    `index=True` ends up indexed on a fresh database and unindexed on every
+    upgraded one. The scan that results is invisible until the table is large.
+    """
+    from app.db import Base
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # create_all will build it, indexes included
+        # get_indexes() omits indexes that back a UNIQUE constraint, so consult
+        # the unique constraints too — otherwise those are "missing" on every
+        # boot and re-created into an error.
+        present = {idx["name"] for idx in inspector.get_indexes(table.name)}
+        present |= {uc.get("name") for uc in inspector.get_unique_constraints(table.name)}
+
+        for index in table.indexes:
+            if index.name in present:
+                continue
+            try:
+                index.create(bind=engine)
+                logger.info("Created missing index %s on %s", index.name, table.name)
+            except Exception as exc:  # pragma: no cover - defensive
+                # A missing index is a performance problem, never a reason to
+                # refuse to start.
+                logger.warning("Could not create index %s on %s: %s", index.name, table.name, exc)
+
+
 def post_create(engine: Engine) -> None:
     """Steps that need the new tables to exist (runs after create_all)."""
+    ensure_indexes(engine)
+
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
 

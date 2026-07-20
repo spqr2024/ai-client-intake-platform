@@ -13,7 +13,11 @@ import pytest
 from app import telegram_bot as cli
 from app.core.config import get_settings
 
-BOT_ID = 8681592360
+# Fictional. Real ids do not belong in a public repository: a chat id
+# identifies a person's Telegram account, and a bot id ties the project to one
+# deployment.
+BOT_ID = 1234567890
+MANAGER_CHAT = "9876543210"
 
 
 @pytest.fixture
@@ -45,12 +49,12 @@ def run(coro) -> int:
 def test_info_reports_a_healthy_bot(token, api, monkeypatch, capsys):
     api.responses["getMe"] = {"ok": True, "result": {"id": BOT_ID, "username": "nora_bot"}}
     api.responses["getWebhookInfo"] = {"ok": True, "result": {"url": "", "pending_update_count": 0}}
-    monkeypatch.setattr(cli.telegram_service, "authorized_chat_ids", lambda db, ws: {"5175461269"})
+    monkeypatch.setattr(cli.telegram_service, "authorized_chat_ids", lambda db, ws: {MANAGER_CHAT})
 
     assert run(cli.cmd_info()) == 0
     out = capsys.readouterr().out
     assert "nora_bot" in out
-    assert "5175461269" in out
+    assert MANAGER_CHAT in out
 
 
 def test_info_flags_the_bots_own_id_used_as_the_chat_id(token, api, monkeypatch, capsys):

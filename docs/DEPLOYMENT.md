@@ -165,7 +165,22 @@ and retries stay local to the instance that enqueued them.
 
 An additive auto-migrator runs at startup (`app/db_migrate.py`): it adds new
 columns, rebuilds `app_settings` for tenancy, and drops obsolete tables. It is
-data-preserving and idempotent.
+data-preserving and idempotent. Upgrading an existing deployment needs no manual
+step — the new columns are added on the next boot (e.g. 2.4.0 added
+`leads.contact_method` / `leads.contact_value` for the intake communication
+channel).
+
+**Built-in workflow upgrades.** Some releases change the default intake flow —
+2.4.0 added a step where the client picks how they want to be contacted (Email /
+Telegram / Phone), stored on the lead and shown in the Telegram alert instead of
+defaulting to email. `get_default_workflow` only *seeds* the flow when none
+exists, so an existing database keeps whatever was stored on first boot. To close
+that gap, `chat.upgrade_default_workflows` runs at startup and replaces a stored
+default **only when it still deep-equals a previous built-in**
+(`workflow.SUPERSEDED_DEFAULTS`) — i.e. it was never edited. A default workflow an
+admin has customised in **Admin → Workflows** never matches and is left untouched,
+so if you edited yours, add new steps there yourself. Verify after deploy: start a
+chat and confirm the contact-channel question appears before the summary.
 
 For regulated or high-value production data, graduate to Alembic:
 

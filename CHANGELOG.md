@@ -28,6 +28,12 @@ Client-chosen communication channel.
   untouched. See `chat.upgrade_default_workflows` and
   `workflow.SUPERSEDED_DEFAULTS`.
 
+### Docs
+- README and the GitHub Pages landing page surface the contact-channel picker
+  and refresh the test/coverage numbers to 295 tests (264 backend + 31 frontend)
+  / 84%. Deployment guide documents the new columns and the in-place
+  default-workflow upgrade.
+
 ## [2.3.0] — 2026-07-19
 
 Pre-publication security pass.

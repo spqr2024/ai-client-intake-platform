@@ -17,6 +17,9 @@ Client-chosen communication channel.
 - The Telegram "new lead" alert, lead card, Call action and follow-up reminder
   now show the client's **chosen channel** instead of always defaulting to
   email. The admin lead page shows a "Preferred" contact row.
+- Demo/seed data spreads its leads across all three channels (email, Telegram,
+  phone), so the seeded pipeline, lead cards and Telegram alerts showcase the
+  picker; the seeded conversation replay shows the channel step too.
 
 ### Changed
 - The built-in default intake workflow gained the channel step. Existing

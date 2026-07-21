@@ -248,6 +248,27 @@ DEMO_LEADS = [
     ),
 ]
 
+# Preferred contact channel per demo lead, keyed by email, so the seeded
+# pipeline shows the intake channel picker (Email / Telegram / Phone) rather than
+# every lead defaulting to email. A lead not listed here (or the anonymous
+# incomplete one) falls back to email using its own address.
+DEMO_CONTACTS: dict[str, tuple[str, str]] = {
+    "dan@fitpulse.app": ("telegram", "@danlee_dev"),
+    "priya@harborlaw.com": ("telegram", "@priya_raman"),
+    "tomas@logistix.cz": ("telegram", "@tomas_novak"),
+    "bob@northstar.io": ("phone", "+1 415 555 0132"),
+    "marco@vinoteca.it": ("phone", "+39 06 5555 0148"),
+    "lena@bikeworks.de": ("phone", "+49 30 5555 0177"),
+    "kateryna@salonlux.ua": ("phone", "+380 66 555 0193"),
+}
+
+# (label shown as the client's pick, detail prompt the bot asks next) per method.
+CONTACT_COPY: dict[str, tuple[str, str]] = {
+    "email": ("Email", "Great — what email should we use to send the summary and follow up?"),
+    "telegram": ("Telegram", "Great — what's your Telegram username so we can message you?"),
+    "phone": ("Phone", "Great — what mobile number should we call or text?"),
+}
+
 TRANSCRIPT_TEMPLATE = [
     (
         "bot",
@@ -267,11 +288,13 @@ TRANSCRIPT_TEMPLATE = [
     ("user", "{timeline}", "answer", "timeline"),
     (
         "bot",
-        "Almost done! What email should we use to send you the summary and follow up?",
+        "Almost finished — how would you like us to contact you?",
         "question",
-        "email",
+        "contact_method",
     ),
-    ("user", "{client_email}", "answer", "email"),
+    ("user", "{contact_label}", "answer", "contact_method"),
+    ("bot", "{contact_prompt}", "question", "contact_detail"),
+    ("user", "{contact_value}", "answer", "contact_detail"),
 ]
 
 
@@ -383,6 +406,8 @@ def _create_demo_lead(db: Session, workspace_id: int, entry: tuple, manager: Use
     ) = entry
 
     created = utcnow() - timedelta(days=days_ago, hours=random.randint(1, 10), minutes=random.randint(0, 59))
+    method, value = DEMO_CONTACTS.get(email, ("email", email) if email else ("", ""))
+    contact_label, contact_prompt = CONTACT_COPY.get(method, CONTACT_COPY["email"])
     answers = {
         "client_name": client,
         "client_email": email,
@@ -391,11 +416,20 @@ def _create_demo_lead(db: Session, workspace_id: int, entry: tuple, manager: Use
         "timeline": timeline,
         "goals": goals,
     }
+    if method:
+        answers["contact_method"] = contact_label
+    if method == "telegram":
+        answers["contact_telegram"] = value
+    elif method == "phone":
+        answers["client_phone"] = value
     lead = Lead(
         workspace_id=workspace_id,
         project_name=project,
         client_name=client,
         client_email=email,
+        client_phone=value if method == "phone" else "",
+        contact_method=method,
+        contact_value=value,
         service=service,
         budget=budget,
         timeline=timeline,
@@ -435,6 +469,9 @@ def _create_demo_lead(db: Session, workspace_id: int, entry: tuple, manager: Use
         "goals": goals or "Just browsing for now",
         "budget_text": f"About ${budget:,.0f}" if budget else "Not sure yet",
         "timeline": timeline or "Not decided",
+        "contact_label": contact_label,
+        "contact_prompt": contact_prompt,
+        "contact_value": value or "—",
     }
     steps = TRANSCRIPT_TEMPLATE if status != "Incomplete" else TRANSCRIPT_TEMPLATE[:6]
     for offset, (sender, template, event, node) in enumerate(steps):

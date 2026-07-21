@@ -125,6 +125,9 @@ def test_demo_provisioning_populates_and_is_idempotent(db_session):
     assert all(lead.summary for lead in leads if lead.status != "Incomplete")
     assert any(lead.language == "uk" for lead in leads)
     assert any(lead.follow_up_at is not None for lead in leads)
+    # The seeded pipeline showcases all three intake contact channels.
+    assert {lead.contact_method for lead in leads} >= {"email", "telegram", "phone"}
+    assert all(lead.contact_value for lead in leads if lead.contact_method)
 
     # Running again must not duplicate anything.
     assert provision_demo_workspace(db_session, workspace.id) is False

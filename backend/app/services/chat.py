@@ -108,6 +108,27 @@ def get_default_workflow(db: Session, workspace_id: int = DEFAULT_WORKSPACE_ID) 
     return workflow
 
 
+def upgrade_default_workflows(db: Session) -> int:
+    """Bring unmodified built-in default workflows up to the current version.
+
+    `get_default_workflow` only seeds DEFAULT_WORKFLOW when none exists, so an
+    existing database keeps whatever was stored on first boot and would never
+    gain intake steps shipped later (e.g. the communication-channel picker). Any
+    stored default that still deep-equals a previous built-in
+    (`workflow.SUPERSEDED_DEFAULTS`) has not been customised, so we replace it
+    with the current DEFAULT_WORKFLOW. A flow an admin edited never matches and
+    is left untouched."""
+    upgraded = 0
+    for workflow in db.scalars(select(Workflow).where(Workflow.is_default == 1)).all():
+        if workflow.definition != wf.DEFAULT_WORKFLOW and workflow.definition in wf.SUPERSEDED_DEFAULTS:
+            workflow.definition = wf.DEFAULT_WORKFLOW
+            upgraded += 1
+    if upgraded:
+        db.commit()
+        logger.info("Upgraded %s default workflow(s) to the current built-in intake", upgraded)
+    return upgraded
+
+
 def start_conversation(
     db: Session,
     client_name: str = "",
@@ -253,6 +274,48 @@ async def _maybe_rephrase(db: Session, conversation: Conversation, workflow: Wor
         return prompt
 
 
+def _normalize_handle(handle: str) -> str:
+    """Tidy a Telegram username: a bare token becomes @token; a link, an
+    already-@'d handle, or a multi-word answer is left as the client wrote it."""
+    h = handle.strip()
+    if not h or h.startswith("@") or "/" in h or " " in h:
+        return h
+    return "@" + h
+
+
+# Choice keyword → normalized method. Checked in order; the raw picker answer
+# (localized, possibly typed rather than tapped) is matched against these.
+_CONTACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("telegram", ("telegram", "телеграм")),
+    ("phone", ("phone", "mobile", "call", "телефон", "номер", "дзвін")),
+    ("email", ("email", "e-mail", "mail", "пошт", "мейл")),
+]
+
+
+def _resolve_contact(answers: dict) -> tuple[str, str]:
+    """Return (method, value) for the channel the client chose during intake.
+
+    The picker stores its raw choice under `contact_method` and the matching
+    detail under client_email / client_phone / contact_telegram (whichever branch
+    ran). We normalise the choice to a stable key and pair it with that value so
+    the Telegram notification and CRM have one place to read the preferred
+    contact. When no recognisable choice is present (a legacy flow, or a
+    prefilled email) we infer the channel from whatever detail was captured."""
+    raw = str(answers.get("contact_method", "")).strip().lower()
+    values = {
+        "email": str(answers.get("client_email", "")).strip(),
+        "phone": str(answers.get("client_phone", "")).strip(),
+        "telegram": _normalize_handle(str(answers.get("contact_telegram", ""))),
+    }
+    for method, keywords in _CONTACT_KEYWORDS:
+        if any(k in raw for k in keywords):
+            return method, values[method]
+    for method in ("telegram", "phone", "email"):  # infer from captured detail
+        if values[method]:
+            return method, values[method]
+    return "", ""
+
+
 async def _finalize(
     db: Session,
     conversation: Conversation,
@@ -296,12 +359,15 @@ async def _finalize(
         priority = "Low"
 
     budget = answers.get("budget")
+    contact_method, contact_value = _resolve_contact(answers)
     lead = Lead(
         workspace_id=workspace_id,
         project_name=summary_service.project_name_from(answers),
         client_name=str(answers.get("client_name", ""))[:255],
         client_email=str(answers.get("client_email", ""))[:255],
         client_phone=str(answers.get("client_phone", ""))[:64],
+        contact_method=contact_method,
+        contact_value=contact_value[:255],
         service=str(answers.get("service", ""))[:255],
         budget=float(budget) if isinstance(budget, (int, float)) else None,
         timeline=str(answers.get("timeline", ""))[:255],

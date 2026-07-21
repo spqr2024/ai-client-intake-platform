@@ -33,6 +33,13 @@ async function downloadAttachment(id: number, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Human labels for the channel a client chose during intake. */
+const CONTACT_LABELS: Record<string, string> = {
+  email: "✉️ Email",
+  telegram: "✈️ Telegram",
+  phone: "📱 Phone",
+};
+
 function Markdownish({ text }: { text: string }) {
   return (
     <>
@@ -230,6 +237,14 @@ export default function LeadDetailPage() {
               <h2 className="mb-3 font-semibold">👤 Client</h2>
               <dl className="space-y-2">
                 <Row label="Name" value={lead.client_name || "Anonymous"} />
+                {lead.contact_method && (
+                  <Row
+                    label="Preferred"
+                    value={`${CONTACT_LABELS[lead.contact_method] ?? lead.contact_method} · ${
+                      lead.contact_value || "—"
+                    }`}
+                  />
+                )}
                 <Row label="Email" value={lead.client_email || "—"} />
                 <Row label="Phone" value={lead.client_phone || "—"} />
                 <Row label="Service" value={lead.service || "—"} />

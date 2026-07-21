@@ -113,6 +113,8 @@ class LeadListItem(BaseModel):
 class LeadDetail(LeadListItem):
     client_email: str
     client_phone: str
+    contact_method: str = ""
+    contact_value: str = ""
     summary: str
     language: str
     assigned_to: UserOut | None = None

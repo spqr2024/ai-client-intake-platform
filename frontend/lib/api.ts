@@ -156,6 +156,8 @@ export interface UserOut {
 export interface LeadDetail extends LeadListItem {
   client_email: string;
   client_phone: string;
+  contact_method: string;
+  contact_value: string;
   summary: string;
   language: string;
   updated_at: string;

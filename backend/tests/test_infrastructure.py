@@ -80,7 +80,7 @@ def test_notification_center_inapp_and_deliveries(client, auth_headers):
     # Driving a chat to completion creates in-app notifications for staff.
     resp = client.post("/api/chat/start", json={"client_name": "Notif Test"})
     conversation_id = resp.json()["conversation_id"]
-    for answer in ["Website", "Site for a cafe", "$2500", "Flexible", "cafe@x.co", "no"]:
+    for answer in ["Website", "Site for a cafe", "$2500", "Flexible", "Email", "cafe@x.co", "no"]:
         client.post(f"/api/chat/{conversation_id}/msg", json={"text": answer})
 
     inbox = client.get("/api/notifications", headers=auth_headers).json()

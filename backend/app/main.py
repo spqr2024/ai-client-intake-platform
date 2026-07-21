@@ -150,6 +150,9 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         bootstrap(db)
+        # Bring an unmodified seeded default workflow up to the current built-in
+        # intake (e.g. the communication-channel step) on existing databases.
+        chat_service.upgrade_default_workflows(db)
         if settings.demo_mode:
             from app.demo import provision_demo_workspace
             from app.services.kb import reindex_workspace

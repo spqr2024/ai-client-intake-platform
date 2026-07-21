@@ -71,6 +71,7 @@ def test_simulate_replays_a_flow(client, auth_headers):
                 "Sell candles across the EU",
                 "$5000",
                 "1-3 months",
+                "Email",
                 "alice@example.com",
                 "no",
             ],

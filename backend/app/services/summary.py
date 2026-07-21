@@ -49,7 +49,11 @@ def rule_based_summary(answers: dict, lang: str = "en") -> str:
     labels = _LABELS.get(lang, _LABELS["en"])
     budget = answers.get("budget")
     budget_text = f"${budget:,.0f}" if isinstance(budget, (int, float)) and budget else "—"
-    contact_parts = [p for p in (answers.get("client_email"), answers.get("client_phone")) if p]
+    contact_parts = [
+        p
+        for p in (answers.get("client_email"), answers.get("client_phone"), answers.get("contact_telegram"))
+        if p
+    ]
     lines = [
         f"- **{labels['project']}**: {project_name_from(answers)}",
         f"- **{labels['client']}**: {answers.get('client_name') or '—'}",

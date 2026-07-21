@@ -5,7 +5,7 @@ import pytest
 def lead_id(client, auth_headers):
     resp = client.post("/api/chat/start", json={"client_name": "Frank", "email": "frank@x.co"})
     conversation_id = resp.json()["conversation_id"]
-    for answer in ["Website", "Company site for a bakery", "$3000", "Within 1 month", "no"]:
+    for answer in ["Website", "Company site for a bakery", "$3000", "Within 1 month", "Email", "no"]:
         last = client.post(f"/api/chat/{conversation_id}/msg", json={"text": answer}).json()
     return last["lead_id"]
 

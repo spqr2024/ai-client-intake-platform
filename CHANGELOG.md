@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [2.4.0] — 2026-07-21
+
+Client-chosen communication channel.
+
+### Added
+- **Communication-channel picker in intake.** Before finishing, the assistant
+  now asks how the client prefers to be reached — **Email**, **Telegram**, or
+  **Phone** — and collects the matching detail (address, @handle, or number).
+  The choice and its value are stored on the lead (`contact_method` /
+  `contact_value`); `client_email` / `client_phone` stay populated for the
+  email/phone cases so email delivery and CRM export are unaffected.
+- The Telegram "new lead" alert, lead card, Call action and follow-up reminder
+  now show the client's **chosen channel** instead of always defaulting to
+  email. The admin lead page shows a "Preferred" contact row.
+
+### Changed
+- The built-in default intake workflow gained the channel step. Existing
+  databases are upgraded in place at startup **only when the stored default is
+  unmodified** (deep-equals a previous built-in); customised workflows are left
+  untouched. See `chat.upgrade_default_workflows` and
+  `workflow.SUPERSEDED_DEFAULTS`.
+
 ## [2.3.0] — 2026-07-19
 
 Pre-publication security pass.

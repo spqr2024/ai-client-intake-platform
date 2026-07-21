@@ -82,6 +82,13 @@ class Lead(Base):
     client_name: Mapped[str] = mapped_column(String(255), default="")
     client_email: Mapped[str] = mapped_column(String(255), default="")
     client_phone: Mapped[str] = mapped_column(String(64), default="")
+    # Preferred contact channel the client picked during intake, plus its value.
+    # `contact_method` is "email" | "telegram" | "phone"; `contact_value` holds
+    # the address / @handle / number for that channel. client_email and
+    # client_phone stay populated for the email/phone cases (so email delivery
+    # and CRM export keep working); a Telegram handle lives only here.
+    contact_method: Mapped[str] = mapped_column(String(20), default="")
+    contact_value: Mapped[str] = mapped_column(String(255), default="")
     service: Mapped[str] = mapped_column(String(255), default="")
     budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     timeline: Mapped[str] = mapped_column(String(255), default="")

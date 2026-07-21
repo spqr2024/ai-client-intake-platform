@@ -65,7 +65,7 @@ def test_chat_start_resolves_workspace_slug(client, acme_headers, second_workspa
     resp = client.post("/api/chat/start", json={"client_name": "Visitor", "workspace": "acme"})
     assert resp.status_code == 200
     conversation_id = resp.json()["conversation_id"]
-    for answer in ["Website", "Small site", "$1000", "Flexible", "v@acme.io", "no"]:
+    for answer in ["Website", "Small site", "$1000", "Flexible", "Email", "v@acme.io", "no"]:
         last = client.post(f"/api/chat/{conversation_id}/msg", json={"text": answer}).json()
     assert last["done"]
 

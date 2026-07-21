@@ -154,7 +154,7 @@ jobs:
           CID=$(curl -sf -X POST http://localhost:8000/api/chat/start \
             -H 'Content-Type: application/json' -d '{"client_name":"CI Bot"}' \
             | python -c 'import sys,json; print(json.load(sys.stdin)["conversation_id"])')
-          for MSG in "Website" "A marketing site" '$3000' "ASAP" "ci@example.com" "no"; do
+          for MSG in "Website" "A marketing site" '$3000' "ASAP" "Email" "ci@example.com" "no"; do
             curl -sf -X POST "http://localhost:8000/api/chat/$CID/msg" \
               -H 'Content-Type: application/json' \
               -d "{\"text\":\"$MSG\"}" > /tmp/reply.json

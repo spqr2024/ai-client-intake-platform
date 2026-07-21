@@ -20,6 +20,7 @@ def test_full_chat_creates_qualified_lead(client, auth_headers):
             "I want to sell handmade jewelry across Europe, around 200 products",
             "$5000",
             "1-3 months",
+            "Email",
             "alice@example.com",
             "No, that's all",
         ],
@@ -31,10 +32,54 @@ def test_full_chat_creates_qualified_lead(client, auth_headers):
     detail = client.get(f"/api/leads/{last['lead_id']}", headers=auth_headers).json()
     assert detail["client_name"] == "Alice Johnson"
     assert detail["client_email"] == "alice@example.com"
+    assert detail["contact_method"] == "email"
+    assert detail["contact_value"] == "alice@example.com"
     assert detail["budget"] == 5000
     assert detail["status"] == "Qualified"
     assert detail["score"] >= 60
     assert len(detail["messages"]) >= 10  # full transcript stored
+
+
+def test_client_can_choose_telegram_as_the_channel(client, auth_headers):
+    """Picking Telegram asks for a handle and records it as the preferred
+    contact — with no email captured."""
+    _, last = _run_chat(
+        client,
+        [
+            "Dana",
+            "Website",
+            "A landing page for my studio",
+            "$2000",
+            "Flexible",
+            "Telegram",
+            "dana_dev",  # bare handle → normalized to @dana_dev
+            "no",
+        ],
+    )
+    detail = client.get(f"/api/leads/{last['lead_id']}", headers=auth_headers).json()
+    assert detail["contact_method"] == "telegram"
+    assert detail["contact_value"] == "@dana_dev"
+    assert detail["client_email"] == ""
+
+
+def test_client_can_choose_phone_as_the_channel(client, auth_headers):
+    _, last = _run_chat(
+        client,
+        [
+            "Sam",
+            "Mobile app",
+            "A fitness tracker",
+            "$10000",
+            "1-3 months",
+            "Phone",
+            "+1 415 555 0142",
+            "no",
+        ],
+    )
+    detail = client.get(f"/api/leads/{last['lead_id']}", headers=auth_headers).json()
+    assert detail["contact_method"] == "phone"
+    assert detail["contact_value"] == "+1 415 555 0142"
+    assert detail["client_phone"] == "+1 415 555 0142"
 
 
 def test_prefilled_contact_skips_questions(client):
@@ -54,6 +99,7 @@ def test_ukrainian_conversation(client, auth_headers):
             "Сайт для салону краси з онлайн-записом",
             "$2000",
             "Якнайшвидше",
+            "Email",
             "kate@example.ua",
             "Ні, це все",
         ],
@@ -87,6 +133,57 @@ def test_unknown_conversation_404(client):
     assert client.post("/api/chat/nope/msg", json={"text": "hi"}).status_code == 404
 
 
+def test_upgrade_default_workflow_patches_unmodified_seed(client, db_session, other_workspace_id):
+    """An existing database seeded before the contact step gets upgraded in
+    place, and the migration is idempotent."""
+    import copy
+
+    from app.models import Workflow
+    from app.services import chat as chat_service
+    from app.services import workflow as wf
+
+    legacy = copy.deepcopy(wf.SUPERSEDED_DEFAULTS[0])
+    assert "contact_method" not in legacy["nodes"]  # sanity: the old shape
+    row = Workflow(workspace_id=other_workspace_id, name="Seeded default", is_default=1, definition=legacy)
+    db_session.add(row)
+    db_session.commit()
+
+    assert chat_service.upgrade_default_workflows(db_session) >= 1
+    db_session.refresh(row)
+    assert "contact_method" in row.definition["nodes"]
+    assert chat_service.upgrade_default_workflows(db_session) == 0  # idempotent
+
+
+def test_upgrade_leaves_a_customised_default_untouched(client, db_session, other_workspace_id):
+    from app.models import Workflow
+    from app.services import chat as chat_service
+
+    custom = {
+        "start": "name",
+        "nodes": {
+            "name": {"field": "client_name", "type": "text", "prompt": {"en": "Your name?"}, "next": ""}
+        },
+    }
+    row = Workflow(
+        workspace_id=other_workspace_id,
+        name="Customised flow",
+        is_default=1,
+        definition=copy_def(custom),
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    chat_service.upgrade_default_workflows(db_session)
+    db_session.refresh(row)
+    assert row.definition == custom  # never clobbered
+
+
+def copy_def(d):
+    import copy
+
+    return copy.deepcopy(d)
+
+
 def test_html_is_sanitized(client, auth_headers):
     _, last = _run_chat(
         client,
@@ -96,6 +193,7 @@ def test_html_is_sanitized(client, auth_headers):
             "Simple portfolio",
             "$1000",
             "Flexible",
+            "Email",
             "eve@example.com",
             "no",
         ],

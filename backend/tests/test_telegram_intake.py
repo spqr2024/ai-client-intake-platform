@@ -151,3 +151,42 @@ async def test_manager_free_text_is_not_intake(client, db_session, sent):
     """A manager talking to the assistant must never create a lead."""
     await tg.handle_update(db_session, update(MANAGER, "what's the pipeline looking like?"), WS)
     assert conversation_for(db_session, MANAGER) is None
+
+
+def test_lead_notification_shows_the_chosen_channel():
+    """The new-lead alert reflects the client's picked channel, not just email."""
+    tg_lead = Lead(
+        workspace_id=WS,
+        client_name="Dana",
+        service="Website",
+        contact_method="telegram",
+        contact_value="@dana_dev",
+        score=50,
+        priority="Medium",
+    )
+    text = tg.build_lead_text(tg_lead)
+    assert "Telegram: @dana_dev" in text
+    assert "no email" not in text
+
+    phone_lead = Lead(
+        workspace_id=WS,
+        client_name="Sam",
+        service="Mobile app",
+        contact_method="phone",
+        contact_value="+1 415 555 0142",
+        client_phone="+1 415 555 0142",
+        score=70,
+        priority="High",
+    )
+    assert "Phone: +1 415 555 0142" in tg.build_lead_text(phone_lead)
+
+    # A lead created before the picker existed still renders via its email.
+    legacy = Lead(
+        workspace_id=WS,
+        client_name="Old",
+        service="Branding",
+        client_email="old@example.com",
+        score=0,
+        priority="Low",
+    )
+    assert "old@example.com" in tg.build_lead_text(legacy)

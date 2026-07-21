@@ -92,15 +92,41 @@ async def send_message(chat_id: str, text: str, reply_markup: dict | None = None
 
 
 # ── Message construction ──────────────────────────────────────────────────
+# Preferred-channel presentation: emoji + label per method.
+_CONTACT_LABELS: dict[str, tuple[str, str]] = {
+    "email": ("✉️", "Email"),
+    "telegram": ("✈️", "Telegram"),
+    "phone": ("📱", "Phone"),
+}
+
+
+def contact_display(lead: Lead) -> tuple[str, str, str]:
+    """(emoji, label, value) for the lead's preferred contact channel.
+
+    Uses the channel the client chose during intake. Leads created before the
+    picker existed have no `contact_method`, so fall back to whichever of
+    email/phone is populated rather than showing nothing."""
+    method = (lead.contact_method or "").lower()
+    value = lead.contact_value or ""
+    if not method:
+        if lead.client_email:
+            method, value = "email", lead.client_email
+        elif lead.client_phone:
+            method, value = "phone", lead.client_phone
+    emoji, label = _CONTACT_LABELS.get(method, ("👤", "Contact"))
+    return emoji, label, value or "—"
+
+
 def build_lead_text(lead: Lead) -> str:
     budget = f"${lead.budget:,.0f}" if lead.budget else "—"
+    emoji, label, value = contact_display(lead)
     return (
         f"🔥 <b>New Lead Received!</b>\n"
         f"📌 Service: {html.escape(lead.service or '—')}\n"
         f"💰 Budget: {html.escape(budget)}\n"
         f"⏱ Timeline: {html.escape(lead.timeline or '—')}\n"
-        f"👤 Contact: {html.escape(lead.client_name or 'Anonymous')}"
-        f" ({html.escape(lead.client_email or 'no email')})\n"
+        f"👤 Contact: {html.escape(lead.client_name or 'Anonymous')}\n"
+        f"{emoji} {label}: {html.escape(value)}\n"
         f"⭐ Score: {lead.score}/100 · Priority: {html.escape(lead.priority)}"
     )
 
@@ -449,6 +475,7 @@ async def _handle_lead_detail(db: Session, text: str, chat_id, workspace_id: int
     if lead is None:
         return await _reply(chat_id, f"Lead #{lead_id} not found.")
 
+    c_emoji, c_label, c_value = contact_display(lead)
     lines = [
         f"<b>Lead #{lead.id}</b> · ⭐ {lead.score}/100 · {html.escape(lead.priority)}",
         f"📌 {html.escape(lead.project_name or '—')}",
@@ -457,6 +484,7 @@ async def _handle_lead_detail(db: Session, text: str, chat_id, workspace_id: int
         f"📊 {html.escape(lead.status)}",
         "",
         f"👤 {html.escape(lead.client_name or 'Anonymous')}",
+        f"📇 Preferred: {c_emoji} {html.escape(c_label)} — {html.escape(c_value)}",
         f"✉️ {html.escape(lead.client_email or '—')}",
         f"📞 {html.escape(lead.client_phone or '—')}",
     ]
@@ -729,7 +757,8 @@ async def _handle_callback(db: Session, callback: dict) -> dict:
         lead.status = "Rejected"
         reply = f"❌ Lead #{lead.id} rejected."
     elif action == "call":
-        contact = lead.client_phone or lead.client_email or "no contact info collected"
+        _, label, value = contact_display(lead)
+        contact = f"{label}: {value}" if value != "—" else "no contact info collected"
         reply = f"📞 Contact for lead #{lead.id}: {contact}"
     else:
         return {"ok": False}

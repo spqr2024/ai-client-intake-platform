@@ -25,6 +25,7 @@ intake logic deterministic and unit-testable; the LLM layer only rephrases
 prompts and writes summaries.
 """
 
+import copy
 import re
 from dataclasses import dataclass, field
 
@@ -186,7 +187,16 @@ def advance(definition: dict, state: dict, user_text: str, lang: str = "en") -> 
 
 
 # ── Default intake workflow (web agency flavour, EN + UK) ─────────────────
-DEFAULT_WORKFLOW: dict = {
+#
+# `_DEFAULT_WORKFLOW_PRE_CONTACT` is the flow as shipped through v2.3.x: it
+# always asked for an email at the end. The current default replaces that single
+# email step with a communication-channel picker (Email / Telegram / Phone) via
+# `_with_contact_step`. The pre-contact snapshot is kept *frozen* so the startup
+# migration (chat.upgrade_default_workflows) can recognise an unmodified seeded
+# workflow in an existing database and upgrade it in place, without clobbering a
+# flow an admin has customised. Never edit the snapshot; when the default
+# changes again, append the superseded DEFAULT_WORKFLOW to SUPERSEDED_DEFAULTS.
+_DEFAULT_WORKFLOW_PRE_CONTACT: dict = {
     "start": "name",
     "nodes": {
         "name": {
@@ -288,3 +298,78 @@ DEFAULT_WORKFLOW: dict = {
         },
     },
 }
+
+# The channel picker + its three branch nodes. The picker replaces the single
+# `email` step: the client chooses how they want to be reached, then supplies the
+# matching detail. `contact_method` stores the raw choice; branching keys off the
+# user's text (see `_next_node_id`). Each branch writes to the field the rest of
+# the system already reads (client_email / client_phone), plus contact_telegram
+# for the handle, which has no dedicated column and is resolved in _finalize.
+_CONTACT_NODES: dict = {
+    "contact_method": {
+        "field": "contact_method",
+        "type": "choice",
+        "prompt": {
+            "en": "Almost done! How would you prefer our team to reach you?",
+            "uk": "Майже готово! Як вам зручніше, щоб наша команда з вами зв'язалася?",
+        },
+        "options": {
+            "en": ["Email", "Telegram", "Phone"],
+            "uk": ["Email", "Telegram", "Телефон"],
+        },
+        "branches": [
+            {"if_contains": ["telegram", "телеграм"], "goto": "contact_telegram"},
+            {
+                "if_contains": ["phone", "mobile", "call", "телефон", "номер", "дзвін"],
+                "goto": "contact_phone",
+            },
+        ],
+        "next": "contact_email",
+    },
+    "contact_email": {
+        "field": "client_email",
+        "type": "email",
+        "skip_if_known": True,
+        "prompt": {
+            "en": "Great — what email should we use to send the summary and follow up?",
+            "uk": "Чудово — на який email надіслати підсумок і відповідь нашої команди?",
+        },
+        "next": "extra",
+    },
+    "contact_telegram": {
+        "field": "contact_telegram",
+        "type": "text",
+        "prompt": {
+            "en": "Great — what's your Telegram username so we can message you? (e.g. @username)",
+            "uk": "Чудово — вкажіть ваш нікнейм у Telegram, щоб ми написали. (наприклад, @username)",
+        },
+        "next": "extra",
+    },
+    "contact_phone": {
+        "field": "client_phone",
+        "type": "phone",
+        "prompt": {
+            "en": "Great — what mobile number should we call or text?",
+            "uk": "Чудово — на який номер телефону зателефонувати чи написати?",
+        },
+        "next": "extra",
+    },
+}
+
+
+def _with_contact_step(base: dict) -> dict:
+    """Derive the current default from the pre-contact snapshot by swapping the
+    lone `email` step for the communication-channel picker."""
+    definition = copy.deepcopy(base)
+    nodes = definition["nodes"]
+    nodes["timeline"]["next"] = "contact_method"
+    del nodes["email"]
+    nodes.update(copy.deepcopy(_CONTACT_NODES))
+    return definition
+
+
+DEFAULT_WORKFLOW: dict = _with_contact_step(_DEFAULT_WORKFLOW_PRE_CONTACT)
+
+# Frozen prior built-in defaults. A stored default workflow that still deep-equals
+# one of these has never been customised, so it is safe to upgrade in place.
+SUPERSEDED_DEFAULTS: list[dict] = [_DEFAULT_WORKFLOW_PRE_CONTACT]

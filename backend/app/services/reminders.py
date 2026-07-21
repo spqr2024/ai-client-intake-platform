@@ -88,12 +88,13 @@ async def send_follow_up_reminders(db: Session, workspace_id: int = DEFAULT_WORK
     sent = 0
     for lead in due_follow_ups(db, workspace_id):
         name = lead.project_name or lead.client_name or f"Lead #{lead.id}"
+        c_emoji, c_label, c_value = telegram_service.contact_display(lead)
         text = (
             f"⏰ <b>Follow-up due</b>\n"
             f"<code>#{lead.id}</code> {html.escape(name[:60])}\n"
             f"{html.escape(lead.status)} · {_fmt_budget(lead.budget)} · ⭐ {lead.score}/100\n"
-            f"👤 {html.escape(lead.client_name or 'Anonymous')}"
-            f" ({html.escape(lead.client_email or 'no email')})"
+            f"👤 {html.escape(lead.client_name or 'Anonymous')}\n"
+            f"{c_emoji} {html.escape(c_label)}: {html.escape(c_value)}"
         )
         from app.services.notifications import lead_link
 

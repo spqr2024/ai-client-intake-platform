@@ -30,6 +30,7 @@ def test_full_happy_path():
         "Sell handmade jewelry across Europe with 200 products",
         "$5000",
         "1-3 months",
+        "Email",  # communication channel picker
         "alice@example.com",
         "no",
     ]
@@ -42,7 +43,29 @@ def test_full_happy_path():
     assert collected["client_name"] == "Alice"
     assert collected["platform"] == "Shopify"
     assert collected["budget"] == 5000
+    assert collected["contact_method"] == "Email"
     assert collected["client_email"] == "alice@example.com"
+
+
+def test_contact_picker_routes_to_telegram():
+    """Choosing Telegram asks for a handle and stores it, not an email."""
+    state = {"current_node": "contact_method", "answers": {}, "clarify_count": 0}
+    step = wf.advance(wf.DEFAULT_WORKFLOW, state, "Telegram", "en")
+    assert step.state["current_node"] == "contact_telegram"
+    step = wf.advance(wf.DEFAULT_WORKFLOW, step.state, "@dana_dev", "en")
+    # The `extra` node still follows; the channel detail is captured en route.
+    assert step.state["current_node"] == "extra"
+    assert step.state["answers"]["contact_telegram"] == "@dana_dev"
+    assert not step.state["answers"].get("client_email")
+
+
+def test_contact_picker_routes_to_phone():
+    state = {"current_node": "contact_method", "answers": {}, "clarify_count": 0}
+    step = wf.advance(wf.DEFAULT_WORKFLOW, state, "Phone", "en")
+    assert step.state["current_node"] == "contact_phone"
+    step = wf.advance(wf.DEFAULT_WORKFLOW, step.state, "+1 415 555 0198", "en")
+    assert step.state["current_node"] == "extra"
+    assert step.state["answers"]["client_phone"] == "+1 415 555 0198"
 
 
 def test_branching_skips_platform_for_non_store():
@@ -68,7 +91,7 @@ def test_vague_answer_triggers_clarification():
 
 
 def test_invalid_email_reprompts():
-    state = {"current_node": "email", "answers": {}, "clarify_count": 0}
+    state = {"current_node": "contact_email", "answers": {}, "clarify_count": 0}
     step = wf.advance(wf.DEFAULT_WORKFLOW, state, "my email is banana", "en")
     assert step.needs_clarification
     step = wf.advance(wf.DEFAULT_WORKFLOW, step.state, "ok it is alice@mail.co", "en")

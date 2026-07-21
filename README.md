@@ -3,8 +3,8 @@
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)](frontend/)
-[![Tests](https://img.shields.io/badge/tests-272_passing-brightgreen)](backend/tests/)
-[![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-295_passing-brightgreen)](backend/tests/)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](backend/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ### 🔗 [Project site](https://spqr2024.github.io/ai-client-intake-platform/) · [Telegram bot](https://t.me/aiclient_intake_bot) · [Documentation](#-more-docs) · [API reference](docs/API.md)
@@ -29,7 +29,7 @@ moment you clone it.
 
 | Module | Highlights |
 |---|---|
-| 💬 **AI Chat Widget** | SSE streaming, typing indicator, quick replies, file uploads, EN/UK auto-detection, white-label colors & bot name |
+| 💬 **AI Chat Widget** | SSE streaming, typing indicator, quick replies, file uploads, EN/UK auto-detection, a closing step where the client picks their preferred **contact channel — Email / Telegram / phone** (stored on the lead and surfaced in every alert), white-label colors & bot name |
 | 🔀 **Visual Workflow Builder** | Compose intake flows from step cards — question text per language, answer type, quick replies, branching rules, reordering — with live structural validation (unreachable steps, loops, dead ends), 5 industry templates, a step library and a dry-run simulator. JSON editing is an optional "Advanced" toggle, never a requirement |
 | 🧠 **Prompt Management** | Versioned prompts, one-click activate / rollback, offline test bench, per-workflow assignment |
 | 🤖 **Multi-AI Provider** | OpenAI, Anthropic, Gemini, OpenRouter or deterministic mock — switchable at runtime per workspace |
@@ -83,7 +83,7 @@ Key design decisions:
 | **Data** | PostgreSQL (prod) · SQLite (dev, zero-config) | Same SQLAlchemy code path both ways; nothing to install to start |
 | **Cache / queue** | Redis, optional | Cluster-wide rate limits and durable retries; degrades to in-process |
 | **AI** | OpenAI · Anthropic · Gemini · OpenRouter · offline mock | Provider-agnostic behind one interface; the mock keeps tests deterministic |
-| **Tests** | pytest + coverage gate · Vitest + Testing Library | 272 tests (241 backend + 31 frontend), no API keys or network required |
+| **Tests** | pytest + coverage gate · Vitest + Testing Library | 295 tests (264 backend + 31 frontend), no API keys or network required |
 | **Quality** | Ruff (lint + format) · ESLint · tsc strict · pre-commit | Enforced in CI, not by convention |
 | **Ops** | Docker (non-root, multi-stage) · Compose · GitHub Actions · Prometheus `/metrics` | Reproducible builds, dependency audits, image scanning in CI |
 
@@ -339,7 +339,7 @@ Interactive OpenAPI docs at `/docs`. Highlights (🔒 = JWT, 👑 = admin):
 ## 🧪 Testing & quality
 
 ```bash
-cd backend && ruff check app tests && pytest --cov=app   # 241 tests, 81% coverage
+cd backend && ruff check app tests && pytest --cov=app   # 264 tests, 84% coverage
 cd frontend && npm run lint && npm run test:run && npm run build   # 31 tests
 ```
 

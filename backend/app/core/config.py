@@ -89,10 +89,29 @@ class Settings(BaseSettings):
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:
-            return self.database_url
+            return self._normalize_db_url(self.database_url)
         data_dir = BASE_DIR / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{(data_dir / 'intake.sqlite3').as_posix()}"
+
+    @staticmethod
+    def _normalize_db_url(url: str) -> str:
+        """Pin Postgres URLs to the psycopg3 driver this project actually ships.
+
+        Managed hosts (Render, Heroku, Railway) hand out a bare `postgresql://`
+        URL — or the legacy `postgres://` prefix. SQLAlchemy maps a bare
+        `postgresql://` to the *psycopg2* dialect, which we do not install
+        (requirements.txt ships `psycopg[binary]`, i.e. psycopg3), so the app
+        crashes with `ModuleNotFoundError: No module named 'psycopg2'`. Rewriting
+        the scheme to `postgresql+psycopg://` selects the driver we have, and
+        also repairs the bare `postgres://` prefix that SQLAlchemy 2.0 rejects
+        outright. An explicit `+driver` (e.g. `postgresql+psycopg2://`) is left
+        untouched, so overriding the driver by hand still works.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
 
     @property
     def cors_origin_list(self) -> list[str]:
